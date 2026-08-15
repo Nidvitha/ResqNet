@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}Officers — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>Field officers</h1>
+      <p>Monitor workload and availability, and register new officers.</p>
+    </div>
+
+    <div id="alert"></div>
+
+    <div class="card-header">
+      <h2>Roster</h2>
+      <button class="btn btn-primary btn-sm" id="toggle-form">Register officer</button>
+    </div>
+
+    <!-- Officer accounts are created here, never by public self-registration.
+         Section 9: an open endpoint that grants the officer role would hand out
+         inspection powers to anyone. -->
+    <div class="card mb-2" id="create-panel" hidden>
+      <h3>New field officer</h3>
+      <form id="officer-form" novalidate>
+        <div class="grid grid-2" style="gap:0 1rem">
+          <div class="field"><label for="first_name">First name</label>
+            <input type="text" id="first_name" name="first_name" required></div>
+          <div class="field"><label for="last_name">Last name</label>
+            <input type="text" id="last_name" name="last_name"></div>
+          <div class="field"><label for="username">Username</label>
+            <input type="text" id="username" name="username" required></div>
+          <div class="field"><label for="email">Email</label>
+            <input type="email" id="email" name="email" required></div>
+          <div class="field"><label for="phone_number">Phone</label>
+            <input type="tel" id="phone_number" name="phone_number"></div>
+          <div class="field"><label for="password">Initial password</label>
+            <input type="password" id="password" name="password" required autocomplete="new-password"></div>
+          <div class="field"><label for="employee_id">Employee ID</label>
+            <input type="text" id="employee_id" name="employee_id" required></div>
+          <div class="field"><label for="zone">Operational zone</label>
+            <input type="text" id="zone" name="zone" required>
+            <p class="hint">Matched against a report's district during dispatch.</p></div>
+          <div class="field"><label for="base_latitude">Duty station latitude</label>
+            <input type="text" id="base_latitude" name="base_latitude" inputmode="decimal" required></div>
+          <div class="field"><label for="base_longitude">Duty station longitude</label>
+            <input type="text" id="base_longitude" name="base_longitude" inputmode="decimal" required></div>
+          <div class="field"><label for="max_active_cases">Maximum active cases</label>
+            <input type="number" id="max_active_cases" name="max_active_cases" value="5" min="1" max="50"></div>
+          <div class="field"><label for="specialisation">Specialisation (optional)</label>
+            <input type="text" id="specialisation" name="specialisation" placeholder="structural, electrical…"></div>
+        </div>
+        <button type="submit" class="btn btn-primary" id="create-submit">Create officer</button>
+      </form>
+    </div>
+
+    <div id="officers"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  function render(officers) {
+    var container = document.getElementById("officers");
+    if (!officers.length) {
+      ui.empty(container, "No field officers yet",
+               "Register at least one officer — without one, no report can be dispatched.");
+      return;
+    }
+
+    container.innerHTML =
+      '<div class="table-wrap"><table><thead><tr>' +
+        "<th>Officer</th><th>Employee ID</th><th>Zone</th><th>Status</th>" +
+        "<th class='num'>Active</th><th class='num'>Completed</th><th class='num'>Overdue</th><th>Last sync</th>" +
+      "</tr></thead><tbody>" +
+      officers.map(function (officer) {
+        var load = officer.capacity ? (officer.active_cases / officer.capacity) * 100 : 0;
+        return "<tr>" +
+          "<td><strong>" + ui.esc(officer.name) + "</strong></td>" +
+          '<td class="mono small">' + ui.esc(officer.employee_id) + "</td>" +
+          "<td>" + ui.esc(officer.zone) + "</td>" +
+          "<td>" + (officer.is_available
+            ? '<span class="badge badge-success">Available</span>'
+            : '<span class="badge badge-neutral">Off duty</span>') + "</td>" +
+          '<td class="num" style="min-width:110px">' +
+            "<strong>" + officer.active_cases + " / " + officer.capacity + "</strong>" +
+            '<div class="progress-track" style="margin-top:.3rem"><div class="progress-fill" style="width:' +
+              Math.min(load, 100) + "%;background:" +
+              (load >= 100 ? "var(--red-600)" : load >= 70 ? "var(--amber-500)" : "var(--teal-600)") +
+            '"></div></div></td>' +
+          '<td class="num">' + officer.completed_cases + "</td>" +
+          '<td class="num">' + (officer.overdue_cases
+            ? '<strong style="color:var(--red-700)">' + officer.overdue_cases + "</strong>" : "0") + "</td>" +
+          '<td class="small muted">' +
+            (officer.last_synced_at ? ui.relativeTime(officer.last_synced_at) : "never") + "</td>" +
+        "</tr>";
+      }).join("") + "</tbody></table></div>";
+  }
+
+  function load() {
+    ui.loading("#officers", "Loading officer roster…");
+    api.analytics.officerWorkload()
+      .then(render)
+      .catch(function (error) { ui.errorBox("#officers", error.message); });
+  }
+
+  document.getElementById("toggle-form").addEventListener("click", function () {
+    var panel = document.getElementById("create-panel");
+    panel.hidden = !panel.hidden;
+    this.textContent = panel.hidden ? "Register officer" : "Cancel";
+  });
+
+  document.getElementById("officer-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var form = event.target;
+    var button = document.getElementById("create-submit");
+    var data = ui.formData(form);
+
+    // The API nests officer-specific fields under `profile`.
+    var payload = {
+      username: data.username,
+      email: data.email,
+      first_name: data.first_name,
+      last_name: data.last_name,
+      phone_number: data.phone_number,
+      district: data.zone,
+      password: data.password,
+      profile: {
+        employee_id: data.employee_id,
+        zone: data.zone,
+        base_latitude: data.base_latitude,
+        base_longitude: data.base_longitude,
+        max_active_cases: data.max_active_cases || 5,
+        specialisation: data.specialisation || "",
+      },
+    };
+
+    ui.setBusy(button, true, "Creating…");
+    ui.clear("#alert");
+
+    api.officers.create(payload).then(function (officer) {
+      ui.setBusy(button, false);
+      form.reset();
+      document.getElementById("create-panel").hidden = true;
+      document.getElementById("toggle-form").textContent = "Register officer";
+      ui.flash("#alert", "success",
+               "Officer " + (officer.first_name || officer.username) + " registered and available for dispatch.");
+      load();
+    }).catch(function (error) {
+      ui.setBusy(button, false);
+      ui.flash("#alert", "error", error.message);
+      ui.showFieldErrors(form, error.fields);
+    });
+  });
+
+  document.addEventListener("DOMContentLoaded", load);
+})();
+</script>
+{% endblock %}

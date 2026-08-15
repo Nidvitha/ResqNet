@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Log in — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container-narrow" style="max-width:460px">
+    <div class="page-head center">
+      <h1>Log in</h1>
+      <p>Access your ResQNet portal.</p>
+    </div>
+
+    <div class="card">
+      <div id="form-alert"></div>
+
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" autocomplete="current-password" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="submit">Log in</button>
+      </form>
+
+      <p class="center small muted mt-2" style="margin-bottom:0">
+        No account yet? <a href="{% url 'web:register' %}">Register as a citizen</a>
+      </p>
+    </div>
+
+    <p class="center small muted mt-2">
+      Field officer and administrator accounts are created by an administrator.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById("login-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var form = event.target;
+    var button = document.getElementById("submit");
+    ui.clear("#form-alert");
+    ui.setBusy(button, true, "Signing in…");
+
+    api.auth.login(form.username.value.trim(), form.password.value)
+      .then(function (data) {
+        // Send each role to the portal it actually uses.
+        var role = data.user.role;
+        var destination = "{% url 'web:citizen_dashboard' %}";
+        if (role === "ADMIN") destination = "{% url 'web:admin_dashboard' %}";
+        else if (role === "FIELD_OFFICER") destination = "{% url 'web:officer_dashboard' %}";
+        window.location.href = destination;
+      })
+      .catch(function (error) {
+        ui.setBusy(button, false);
+        ui.flash("#form-alert", "error", error.message);
+      });
+  });
+</script>
+{% endblock %}

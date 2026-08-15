@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{#
+  Phase 12 - the Admin Command Centre (Section 22).
+
+  Section 25 asks dashboards to prioritise "information hierarchy and rapid
+  decision-making". So the layout answers three questions in order:
+
+    1. What is on fire right now?      (critical cases, overdue work)
+    2. What needs me specifically?     (the approval queue)
+    3. How is the operation doing?     (throughput, money, officers)
+#}
+
+{% block title %}Command centre — ResQNet{% endblock %}
+
+{% block head %}
+<style>
+  .section-title {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-soft); font-weight: 800; margin: 2rem 0 .9rem;
+  }
+  .bar-row { display: grid; grid-template-columns: 150px 1fr 56px; align-items: center; gap: .75rem; padding: .35rem 0; font-size: .89rem; }
+  .bar-track { height: 10px; background: var(--slate-100); border-radius: 999px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; background: var(--blue-600); }
+  .queue-item {
+    display: flex; justify-content: space-between; gap: 1rem; align-items: center;
+    padding: .85rem 0; border-bottom: 1px solid var(--border);
+  }
+  .queue-item:last-child { border-bottom: 0; }
+  .trend { display: flex; align-items: flex-end; gap: 3px; height: 70px; }
+  .trend .col { flex: 1; background: var(--blue-600); border-radius: 3px 3px 0 0; min-height: 2px; opacity: .85; }
+  .trend .col.has-critical { background: var(--red-600); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>Command centre</h1>
+      <p>Live operational picture across every case, officer and payout.</p>
+    </div>
+
+    <div id="alert"></div>
+    <div id="dashboard"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  function tile(label, value, modifier, meta) {
+    return '<div class="stat ' + (modifier || "") + '">' +
+      '<div class="stat-label">' + ui.esc(label) + "</div>" +
+      '<div class="stat-value">' + value + "</div>" +
+      (meta ? '<div class="stat-meta">' + ui.esc(meta) + "</div>" : "") + "</div>";
+  }
+
+  function barChart(rows, valueKey, labelKey, colour) {
+    var max = Math.max.apply(null, rows.map(function (r) { return r[valueKey]; }).concat([1]));
+    return rows.map(function (row) {
+      return '<div class="bar-row">' +
+        "<span>" + ui.esc(row[labelKey]) + "</span>" +
+        '<div class="bar-track"><div class="bar-fill" style="width:' +
+          Math.round((row[valueKey] / max) * 100) + "%" +
+          (colour ? ";background:" + colour(row) : "") + '"></div></div>' +
+        '<span class="num"><strong>' + ui.number(row[valueKey]) + "</strong></span>" +
+      "</div>";
+    }).join("");
+  }
+
+  var SEVERITY_COLOUR = {
+    CRITICAL: "var(--sev-critical)", HIGH: "var(--sev-high)",
+    MEDIUM: "var(--sev-medium)", LOW: "var(--sev-low)",
+  };
+
+  function render(data) {
+    var o = data.overview;
+    var html = "";
+
+    /* ---- 1. Immediate operational picture ---- */
+    html += '<div class="grid grid-4">' +
+      tile("Total reports", ui.number(o.total_reports), "is-info", "All time") +
+      tile("Critical cases", ui.number(o.critical_cases), o.critical_cases ? "is-critical" : "", "Highest urgency band") +
+      tile("Pending approval", ui.number(o.pending_approvals), o.pending_approvals ? "is-warning" : "is-good", "Waiting on you") +
+      tile("Active cases", ui.number(o.active_cases), "is-info", "Not yet closed") +
+    "</div>";
+
+    html += '<div class="grid grid-4 mt-2">' +
+      tile("Officers deployed", ui.number(o.officers_deployed), "is-info",
+           o.officers_available + " available of " + o.officers_total) +
+      tile("Relief approved", ui.money(o.relief_approved_total), "is-good", "Authorised to date") +
+      tile("Relief paid", ui.money(o.relief_paid_total), "is-good", "Payouts completed") +
+      tile("Resolution rate", o.resolution_rate + "%", o.resolution_rate >= 50 ? "is-good" : "is-warning",
+           ui.number(o.cases_resolved) + " cases closed") +
+    "</div>";
+
+    /* ---- 2. What needs a decision ---- */
+    html += '<div class="section-title">Needs your decision</div>';
+    html += '<div class="card"><div class="card-header">' +
+      "<h2>Approval queue</h2>" +
+      '<a class="btn btn-sm btn-primary" href="{% url "web:admin_cases" %}">Open case review</a>' +
+      "</div><div id='queue'></div></div>";
+
+    /* ---- 3. Operational breakdowns ---- */
+    html += '<div class="section-title">Operational picture</div>';
+    html += '<div class="grid grid-2">';
+
+    html += '<div class="card"><h2>Cases by urgency</h2>' +
+      (data.by_severity.length
+        ? barChart(data.by_severity, "count", "level", function (row) { return SEVERITY_COLOUR[row.level] || "var(--slate-400)"; })
+        : '<p class="muted small">No triaged cases yet.</p>') + "</div>";
+
+    html += '<div class="card"><h2>Cases by status</h2>' +
+      (data.by_status.length
+        ? barChart(data.by_status.slice(0, 8), "count", "label")
+        : '<p class="muted small">No cases yet.</p>') + "</div>";
+
+    html += '<div class="card"><h2>Cases by disaster type</h2>' +
+      (data.by_disaster_type.length
+        ? barChart(data.by_disaster_type, "count", "label")
+        : '<p class="muted small">No cases yet.</p>') + "</div>";
+
+    html += '<div class="card"><h2>Geographic distribution</h2>' +
+      (data.geographic.length
+        ? '<div class="table-wrap"><table><thead><tr><th>District</th><th class="num">Total</th>' +
+          '<th class="num">Critical</th><th class="num">Resolved</th></tr></thead><tbody>' +
+          data.geographic.slice(0, 10).map(function (row) {
+            return "<tr><td>" + ui.esc(row.district) + '</td><td class="num">' + row.total +
+              '</td><td class="num">' + row.critical + '</td><td class="num">' + row.resolved + "</td></tr>";
+          }).join("") + "</tbody></table></div>" +
+          '<a class="btn btn-sm btn-outline mt-2" href="{% url "web:admin_heatmap" %}">View heatmap</a>'
+        : '<p class="muted small">No district data yet.</p>') + "</div>";
+
+    html += "</div>";   // end grid
+
+    /* ---- 4. Throughput and money ---- */
+    html += '<div class="section-title">Throughput</div>';
+    html += '<div class="grid grid-3">';
+
+    html += '<div class="card"><h2>Inspections</h2>' +
+      '<dl class="kv small" style="display:grid;grid-template-columns:1fr auto;gap:.5rem">' +
+        "<dt>Total</dt><dd class='num'><strong>" + ui.number(data.inspections.total_inspections) + "</strong></dd>" +
+        "<dt>Signed off</dt><dd class='num'><strong>" + ui.number(data.inspections.signed_inspections) + "</strong></dd>" +
+        "<dt>In progress</dt><dd class='num'><strong>" + ui.number(data.inspections.in_progress) + "</strong></dd>" +
+        "<dt>Completed offline</dt><dd class='num'><strong>" + ui.number(data.inspections.offline_completed) + "</strong></dd>" +
+        "<dt>Average duration</dt><dd class='num'><strong>" +
+          (data.inspections.average_inspection_minutes !== null
+            ? data.inspections.average_inspection_minutes + " min" : "—") + "</strong></dd>" +
+      "</dl></div>";
+
+    html += '<div class="card"><h2>Compensation</h2>' +
+      '<dl class="kv small" style="display:grid;grid-template-columns:1fr auto;gap:.5rem">' +
+        "<dt>Claims</dt><dd class='num'><strong>" + ui.number(data.compensation.total_claims) + "</strong></dd>" +
+        "<dt>Calculated</dt><dd class='num'><strong>" + ui.money(data.compensation.total_calculated) + "</strong></dd>" +
+        "<dt>Approved</dt><dd class='num'><strong>" + ui.money(data.compensation.total_approved) + "</strong></dd>" +
+        "<dt>Average claim</dt><dd class='num'><strong>" + ui.money(data.compensation.average_claim) + "</strong></dd>" +
+        "<dt>Adjusted by admin</dt><dd class='num'><strong>" + ui.number(data.compensation.adjusted_claims) + "</strong></dd>" +
+      "</dl></div>";
+
+    html += '<div class="card"><h2>Payouts</h2>' +
+      '<dl class="kv small" style="display:grid;grid-template-columns:1fr auto;gap:.5rem">' +
+        "<dt>Total payouts</dt><dd class='num'><strong>" + ui.number(data.payouts.total_payouts) + "</strong></dd>" +
+        "<dt>Completed</dt><dd class='num'><strong>" + ui.money(data.payouts.completed_amount) + "</strong></dd>" +
+        "<dt>Pending</dt><dd class='num'><strong>" + ui.money(data.payouts.pending_amount) + "</strong></dd>" +
+      "</dl>" +
+      '<p class="small muted mt-2" style="margin-bottom:0">Payout processing is simulated. ' +
+      "No banking system is connected.</p></div>";
+
+    html += "</div>";
+
+    /* ---- 5. Officers ---- */
+    html += '<div class="section-title">Officer monitoring</div>';
+    html += '<div class="card"><div class="card-header"><h2>Workload</h2>' +
+      '<a class="btn btn-sm btn-outline" href="{% url "web:admin_officers" %}">Manage officers</a></div>';
+
+    if (data.officer_workload.length) {
+      html += '<div class="table-wrap"><table><thead><tr>' +
+        "<th>Officer</th><th>Zone</th><th>Status</th><th class='num'>Active</th>" +
+        "<th class='num'>Completed</th><th class='num'>Overdue</th><th>Last sync</th>" +
+        "</tr></thead><tbody>" +
+        data.officer_workload.map(function (officer) {
+          return "<tr>" +
+            "<td><strong>" + ui.esc(officer.name) + '</strong><br><span class="small muted mono">' +
+              ui.esc(officer.employee_id) + "</span></td>" +
+            "<td>" + ui.esc(officer.zone) + "</td>" +
+            "<td>" + (officer.is_available
+              ? '<span class="badge badge-success">Available</span>'
+              : '<span class="badge badge-neutral">Off duty</span>') + "</td>" +
+            '<td class="num">' + officer.active_cases + " / " + officer.capacity + "</td>" +
+            '<td class="num">' + officer.completed_cases + "</td>" +
+            '<td class="num">' + (officer.overdue_cases
+              ? '<strong style="color:var(--red-700)">' + officer.overdue_cases + "</strong>"
+              : "0") + "</td>" +
+            '<td class="small muted">' + (officer.last_synced_at ? ui.relativeTime(officer.last_synced_at) : "never") + "</td>" +
+          "</tr>";
+        }).join("") + "</tbody></table></div>";
+    } else {
+      html += '<p class="muted small">No field officers registered yet.</p>';
+    }
+    html += "</div>";
+
+    document.getElementById("dashboard").innerHTML = html;
+    loadQueue();
+  }
+
+  function loadQueue() {
+    var container = document.getElementById("queue");
+    ui.loading(container, "Loading approval queue…");
+
+    api.approvals.queue().then(function (reports) {
+      if (!reports.length) {
+        container.innerHTML = '<p class="muted small" style="margin:0">' +
+          "Nothing is waiting for a decision. Every inspected case has been reviewed.</p>";
+        return;
+      }
+      container.innerHTML = reports.slice(0, 8).map(function (report) {
+        return '<div class="queue-item">' +
+          "<div>" +
+            '<span class="ref">' + ui.esc(report.reference) + "</span> " +
+            ui.severityBadge(report.triage_level) + " " +
+            ui.statusBadge(report.status, report.status_display) +
+            '<div class="small muted">' + ui.esc(report.citizen_name || "") + " · " +
+              ui.esc(report.address || report.district || "") + "</div>" +
+          "</div>" +
+          '<a class="btn btn-sm btn-primary" href="/command/cases/' +
+            encodeURIComponent(report.reference) + '/">Review</a>' +
+        "</div>";
+      }).join("") +
+      (reports.length > 8
+        ? '<p class="small muted mt-2" style="margin-bottom:0">' +
+          (reports.length - 8) + " more waiting.</p>" : "");
+    }).catch(function (error) { ui.errorBox(container, error.message); });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    ui.loading("#dashboard", "Building the operational picture…");
+    api.analytics.dashboard()
+      .then(render)
+      .catch(function (error) { ui.errorBox("#dashboard", error.message); });
+  });
+})();
+</script>
+{% endblock %}

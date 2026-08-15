@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Contact — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container-narrow">
+    <div class="page-head">
+      <h1>Contact</h1>
+      <p>How to reach the right place, depending on what you need.</p>
+    </div>
+
+    <div class="alert alert-error">
+      <strong>In a life-threatening emergency, call your national emergency number.</strong>
+      ResQNet is not connected to emergency dispatch and cannot send help.
+    </div>
+
+    <div class="grid grid-2 mt-2">
+      <div class="card">
+        <h3>Reporting damage</h3>
+        <p class="muted small">
+          Use the reporting form rather than contacting anyone directly — a report entered
+          there is scored, assigned to an officer, and tracked automatically.
+        </p>
+        <a class="btn btn-primary" href="{% url 'web:citizen_report_form' %}">Report damage</a>
+      </div>
+
+      <div class="card">
+        <h3>A question about your case</h3>
+        <p class="muted small">
+          Open the case in your portal. Its full history — who handled it, when, and what
+          they decided — is visible there, including the reason for any decision.
+        </p>
+        <a class="btn btn-outline" href="{% url 'web:citizen_reports' %}">My reports</a>
+      </div>
+
+      <div class="card">
+        <h3>Field officers</h3>
+        <p class="muted small">
+          For account issues, availability changes, or a case that should be reassigned,
+          contact your district administrator through your normal reporting line.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>About this project</h3>
+        <p class="muted small">
+          ResQNet is an academic project demonstrating a disaster relief workflow.
+          See the About page for what it does and does not do.
+        </p>
+        <a class="btn btn-outline" href="{% url 'web:about' %}">About ResQNet</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

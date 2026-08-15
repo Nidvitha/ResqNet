@@ -1,0 +1,31 @@
+# Environment / secrets
+# .env holds SECRET_KEY and database credentials. It must NEVER be committed —
+# anything pushed to a public repo stays in the history even if deleted later.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+/media/
+/staticfiles/
+*.log
+*.err
+server.log
+server.err
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

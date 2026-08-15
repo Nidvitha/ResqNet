@@ -1,0 +1,393 @@
+{% extends "base.html" %}
+
+{#
+  The damage reporting form (Phase 10).
+
+  Three things make this form different from an ordinary Django form:
+
+    1. It submits over fetch(), so a failure caused by *no network* can be caught
+       and diverted into IndexedDB instead of losing the citizen's work.
+    2. Photos are compressed in the browser before upload (Section 12), because
+       a 6 MB phone photo over a damaged mobile network is a lost report.
+    3. The severity indicator updates live from the triage engine, so the citizen
+       can see that their situation is being taken seriously.
+#}
+
+{% block title %}Report damage — ResQNet{% endblock %}
+
+{% block head %}
+<style>
+  .severity-preview {
+    position: sticky; top: calc(var(--header-h) + 12px); z-index: 5;
+    border-radius: var(--radius-lg); padding: 1rem 1.25rem;
+    border: 2px solid var(--border); background: #fff; margin-bottom: 1.5rem;
+  }
+  .severity-preview .row { justify-content: space-between; }
+  .severity-preview .score { font-size: 1.6rem; font-weight: 800; line-height: 1; }
+  .photo-previews { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap: .75rem; margin-top: .85rem; }
+  .photo-previews figure { margin: 0; position: relative; }
+  .photo-previews img { border-radius: var(--radius); border: 1px solid var(--border); aspect-ratio: 4/3; object-fit: cover; width: 100%; }
+  .photo-previews figcaption { font-size: .75rem; color: var(--text-soft); margin-top: .25rem; }
+  .location-status { font-size: .88rem; padding: .6rem .8rem; border-radius: var(--radius); background: var(--slate-100); }
+  .location-status.ok { background: var(--green-50); color: var(--green-700); }
+  .location-status.warn { background: var(--amber-50); color: #92400e; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container-narrow">
+    <div class="page-head">
+      <h1>Report damage</h1>
+      <p>Tell us what happened. If you have no signal, fill this in anyway — your phone will save it and send it automatically.</p>
+    </div>
+
+    <div id="form-alert"></div>
+
+    <!-- Live severity feedback from the triage engine. -->
+    <div class="severity-preview" id="severity-preview" hidden>
+      <div class="row">
+        <div>
+          <div class="stat-label">Assessed urgency</div>
+          <div class="score" id="severity-score">0</div>
+        </div>
+        <div class="center">
+          <div id="severity-badge"></div>
+          <div class="small muted" id="severity-target" style="margin-top:.3rem"></div>
+        </div>
+      </div>
+    </div>
+
+    <form id="report-form" novalidate>
+
+      <!-- ------------------------------------------------ What happened -->
+      <div class="card mb-2">
+        <fieldset>
+          <legend>What happened?</legend>
+
+          <div class="field">
+            <label for="disaster_type">Type of disaster</label>
+            <select id="disaster_type" name="disaster_type" required>
+              <option value="">Select…</option>
+              <option value="FLOOD">Flood</option>
+              <option value="EARTHQUAKE">Earthquake</option>
+              <option value="CYCLONE">Cyclone / Storm</option>
+              <option value="LANDSLIDE">Landslide</option>
+              <option value="FIRE">Fire</option>
+              <option value="DROUGHT">Drought</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="damage_category">What was damaged?</label>
+            <select id="damage_category" name="damage_category" required>
+              <option value="">Select…</option>
+              <option value="RESIDENTIAL">My home</option>
+              <option value="COMMERCIAL">A business premises</option>
+              <option value="AGRICULTURAL">Farmland or crops</option>
+              <option value="LIVESTOCK">Livestock</option>
+              <option value="INFRASTRUCTURE">Public infrastructure</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="description">Describe the damage</label>
+            <textarea id="description" name="description" rows="4" required
+                      placeholder="For example: Flood water rose to waist height. The back wall has cracked and the wiring is submerged."></textarea>
+            <p class="hint">At least 20 characters. The more specific you are, the better prepared the officer will be.</p>
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- ------------------------------------------------ Damage checks -->
+      <div class="card mb-2">
+        <fieldset>
+          <legend>Tick everything that applies</legend>
+          <p class="hint" style="margin-top:-.5rem;margin-bottom:1rem">
+            These determine how urgently your case is handled. Be honest — an officer will verify on site.
+          </p>
+
+          <div class="check-grid">
+            <label class="check"><input type="checkbox" name="people_trapped"> People are trapped</label>
+            <label class="check"><input type="checkbox" name="medical_assistance_needed"> Medical help is needed</label>
+            <label class="check"><input type="checkbox" name="roof_collapsed"> The roof has completely collapsed</label>
+            <label class="check"><input type="checkbox" name="exposed_live_wires"> Live electrical wires are exposed</label>
+            <label class="check"><input type="checkbox" name="major_structural_damage"> Major structural damage</label>
+            <label class="check"><input type="checkbox" name="wall_damage"> Walls are damaged</label>
+            <label class="check"><input type="checkbox" name="standing_water"> There is standing water</label>
+            <label class="check"><input type="checkbox" name="road_blocked"> The road is blocked</label>
+          </div>
+
+          <div class="field mt-2">
+            <label for="people_affected">How many people are affected at this location?</label>
+            <input type="number" id="people_affected" name="people_affected" min="0" max="10000" value="0" style="max-width:180px">
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- ---------------------------------------------------- Location -->
+      <div class="card mb-2">
+        <fieldset>
+          <legend>Where is it?</legend>
+
+          <div class="row mb-2">
+            <button type="button" class="btn btn-secondary" id="locate">Use my current location</button>
+            <span class="location-status" id="location-status">Location not set</span>
+          </div>
+
+          <div class="grid grid-2" style="gap:0 1rem">
+            <div class="field">
+              <label for="latitude">Latitude</label>
+              <input type="text" id="latitude" name="latitude" inputmode="decimal" required>
+            </div>
+            <div class="field">
+              <label for="longitude">Longitude</label>
+              <input type="text" id="longitude" name="longitude" inputmode="decimal" required>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="address">Address or landmark</label>
+            <textarea id="address" name="address" rows="2"
+                      placeholder="House number, street, nearby landmark"></textarea>
+            <p class="hint">Helps the officer find you when GPS is imprecise.</p>
+          </div>
+
+          <div class="field">
+            <label for="district">District</label>
+            <input type="text" id="district" name="district" value="{{ user.district }}">
+          </div>
+
+          <input type="hidden" name="location_source" id="location_source" value="MANUAL">
+        </fieldset>
+      </div>
+
+      <!-- ------------------------------------------------------ Photos -->
+      <div class="card mb-2">
+        <fieldset>
+          <legend>Photographs <span class="muted small" style="font-weight:400">(optional but helpful)</span></legend>
+
+          <div class="field">
+            <label for="photos" class="btn btn-outline" style="display:inline-flex">Choose photos</label>
+            <input type="file" id="photos" accept="image/jpeg,image/png,image/webp" multiple
+                   class="visually-hidden">
+            <p class="hint">
+              Up to 5 photos. They are automatically made smaller before sending, so they
+              work on a slow connection.
+            </p>
+          </div>
+
+          <div class="photo-previews" id="photo-previews"></div>
+        </fieldset>
+      </div>
+
+      <!-- ------------------------------------------------------ Submit -->
+      <div class="card">
+        <button type="submit" class="btn btn-primary btn-lg btn-block" id="submit">Submit report</button>
+        <button type="button" class="btn btn-ghost btn-block mt-2" id="save-draft">Save as draft</button>
+        <p class="small muted center mt-2" style="margin-bottom:0">
+          You will get a case reference immediately. Photos are attached after the report is created.
+        </p>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  var form = document.getElementById("report-form");
+  var compressedPhotos = [];
+
+  /* ------------------------------------------------------- Location */
+  function setLocationStatus(text, kind) {
+    var node = document.getElementById("location-status");
+    node.textContent = text;
+    node.className = "location-status" + (kind ? " " + kind : "");
+  }
+
+  document.getElementById("locate").addEventListener("click", function () {
+    if (!navigator.geolocation) {
+      setLocationStatus("This browser cannot provide GPS. Enter coordinates manually.", "warn");
+      return;
+    }
+    setLocationStatus("Finding your location…");
+    navigator.geolocation.getCurrentPosition(
+      function (position) {
+        form.latitude.value = position.coords.latitude.toFixed(6);
+        form.longitude.value = position.coords.longitude.toFixed(6);
+        document.getElementById("location_source").value = "GPS";
+        setLocationStatus("Location set (accurate to about " +
+                          Math.round(position.coords.accuracy) + " m)", "ok");
+      },
+      function () {
+        setLocationStatus("Could not get your location. Please enter it manually or type an address.", "warn");
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+    );
+  });
+
+  /* --------------------------------------------- Live severity preview */
+  var previewTimer = null;
+  function indicators() {
+    return {
+      people_trapped: form.people_trapped.checked,
+      medical_assistance_needed: form.medical_assistance_needed.checked,
+      roof_collapsed: form.roof_collapsed.checked,
+      exposed_live_wires: form.exposed_live_wires.checked,
+      major_structural_damage: form.major_structural_damage.checked,
+      wall_damage: form.wall_damage.checked,
+      standing_water: form.standing_water.checked,
+      road_blocked: form.road_blocked.checked,
+      people_affected: Number(form.people_affected.value || 0),
+    };
+  }
+
+  function refreshSeverity() {
+    var values = indicators();
+    var anything = Object.keys(values).some(function (key) { return values[key]; });
+    var panel = document.getElementById("severity-preview");
+    if (!anything) { panel.hidden = true; return; }
+
+    api.reports.triagePreview(values).then(function (result) {
+      panel.hidden = false;
+      panel.style.borderColor = result.colour;
+      document.getElementById("severity-score").textContent = result.score;
+      document.getElementById("severity-score").style.color = result.colour;
+      document.getElementById("severity-badge").innerHTML = ui.severityBadge(result.level);
+      document.getElementById("severity-target").textContent =
+        "Target response: " + result.response_target_hours + " hours";
+    }).catch(function () {
+      panel.hidden = true;   // offline: no preview, but the form still works
+    });
+  }
+
+  form.addEventListener("change", function (event) {
+    if (event.target.type === "checkbox" || event.target.name === "people_affected") {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(refreshSeverity, 250);
+    }
+  });
+
+  /* ------------------------------------------- Client-side compression */
+  /*
+   * Section 12: shrink the image in the browser before it goes near the network.
+   * The backend still validates size, type, real content and dimensions - this is
+   * a bandwidth optimisation, never a substitute for server-side checks.
+   */
+  function compress(file, maxDimension, quality) {
+    return new Promise(function (resolve) {
+      var reader = new FileReader();
+      reader.onload = function (event) {
+        var image = new Image();
+        image.onload = function () {
+          var scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+          var canvas = document.createElement("canvas");
+          canvas.width = Math.round(image.width * scale);
+          canvas.height = Math.round(image.height * scale);
+          canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(function (blob) {
+            resolve(blob ? new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg",
+                                    { type: "image/jpeg" }) : file);
+          }, "image/jpeg", quality);
+        };
+        image.onerror = function () { resolve(file); };
+        image.src = event.target.result;
+      };
+      reader.onerror = function () { resolve(file); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  document.getElementById("photos").addEventListener("change", async function (event) {
+    var files = Array.prototype.slice.call(event.target.files).slice(0, 5);
+    var previews = document.getElementById("photo-previews");
+    previews.innerHTML = "";
+    compressedPhotos = [];
+
+    for (var i = 0; i < files.length; i++) {
+      var original = files[i];
+      var smaller = await compress(original, 1600, 0.75);
+      compressedPhotos.push(smaller);
+
+      var figure = document.createElement("figure");
+      var img = document.createElement("img");
+      img.src = URL.createObjectURL(smaller);
+      img.alt = "Selected photograph " + (i + 1);
+      var caption = document.createElement("figcaption");
+      caption.textContent = Math.round(original.size / 1024) + " KB → " +
+                            Math.round(smaller.size / 1024) + " KB";
+      figure.appendChild(img);
+      figure.appendChild(caption);
+      previews.appendChild(figure);
+    }
+  });
+
+  /* ---------------------------------------------------------- Payload */
+  function buildPayload(submitNow) {
+    var data = ui.formData(form);
+    data.submit_now = submitNow;
+    data.idempotency_key = offline.newIdempotencyKey();
+    data.client_created_at = new Date().toISOString();
+    return data;
+  }
+
+  async function uploadPhotos(reportId) {
+    for (var i = 0; i < compressedPhotos.length; i++) {
+      var formData = new FormData();
+      formData.append("image", compressedPhotos[i]);
+      try { await api.reports.uploadPhoto(reportId, formData); }
+      catch (e) { /* a failed photo must not invalidate the report itself */ }
+    }
+  }
+
+  async function send(submitNow, button) {
+    ui.clear("#form-alert");
+    ui.setBusy(button, true, "Sending…");
+    var payload = buildPayload(submitNow);
+
+    try {
+      var report = await api.reports.create(payload);
+      await uploadPhotos(report.id);
+      ui.flash("#form-alert", "success",
+               "Report " + report.reference + " received. Redirecting to your case…");
+      setTimeout(function () {
+        window.location.href = "/citizen/reports/" + encodeURIComponent(report.reference) + "/";
+      }, 1200);
+    } catch (error) {
+      ui.setBusy(button, false);
+
+      if (error.isNetworkError) {
+        // The whole point of the offline layer: never lose the citizen's work.
+        await offline.queue.add("report", payload);
+        ui.flash("#form-alert", "warning",
+                 "You are offline. Your report has been saved on this device and will send " +
+                 "automatically as soon as you reconnect. You can safely close this page.");
+        form.reset();
+        compressedPhotos = [];
+        document.getElementById("photo-previews").innerHTML = "";
+        document.getElementById("severity-preview").hidden = true;
+        offline.updateBanner();
+      } else {
+        ui.flash("#form-alert", "error", error.message);
+        ui.showFieldErrors(form, error.fields);
+      }
+    }
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    send(true, document.getElementById("submit"));
+  });
+
+  document.getElementById("save-draft").addEventListener("click", function () {
+    send(false, document.getElementById("save-draft"));
+  });
+})();
+</script>
+{% endblock %}

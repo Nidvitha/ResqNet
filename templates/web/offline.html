@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Offline — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container-narrow center">
+    <div class="card" style="padding:3rem 2rem">
+      <div style="font-size:3rem; line-height:1; margin-bottom:1rem" aria-hidden="true">⛅</div>
+      <h1>You are offline</h1>
+      <p class="muted" style="font-size:1.05rem">
+        This page is not available without a connection — but ResQNet has not lost anything.
+      </p>
+
+      <div class="alert alert-info" style="text-align:left; margin-top:1.5rem">
+        <strong>Anything you already saved is safe</strong>
+        Reports and inspections you completed while offline are stored on this device
+        and will be sent automatically the moment your connection returns. You do not
+        need to re-enter them.
+      </div>
+
+      <div class="row" style="justify-content:center; margin-top:1.5rem">
+        <button class="btn btn-primary" onclick="window.location.reload()">Try again</button>
+        <a class="btn btn-outline" href="{% url 'web:home' %}">Go to home</a>
+      </div>
+
+      <p class="small muted mt-3" style="margin-bottom:0" id="pending-note"></p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    offline.queue.count().then(function (count) {
+      if (count) {
+        document.getElementById("pending-note").textContent =
+          count + " item(s) are waiting on this device to be sent.";
+      }
+    });
+  });
+</script>
+{% endblock %}

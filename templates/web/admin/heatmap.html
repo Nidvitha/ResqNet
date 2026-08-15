@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{#
+  The geographic damage heatmap (Section 22).
+
+  Each report is plotted with a weight derived from its triage score, so density
+  and severity are visible at once. Concentrations of red are where relief effort
+  needs to concentrate.
+#}
+
+{% block title %}Damage heatmap — ResQNet{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .legend { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: .87rem; align-items: center; }
+  .legend span { display: inline-flex; align-items: center; gap: .4rem; }
+  .legend i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.15); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>Damage heatmap</h1>
+      <p>Every reported case, sized and coloured by assessed urgency.</p>
+    </div>
+
+    <div class="card card-tight mb-2">
+      <div class="row" style="justify-content:space-between">
+        <div class="legend">
+          <span><i style="background:var(--sev-critical)"></i> Critical</span>
+          <span><i style="background:var(--sev-high)"></i> High</span>
+          <span><i style="background:var(--sev-medium)"></i> Medium</span>
+          <span><i style="background:var(--sev-low)"></i> Low</span>
+        </div>
+        <div class="row">
+          <select id="filter-level" style="max-width:180px">
+            <option value="">All urgencies</option>
+            <option value="CRITICAL">Critical only</option>
+            <option value="HIGH">High and above</option>
+          </select>
+          <span class="small muted" id="point-count"></span>
+        </div>
+      </div>
+    </div>
+
+    <div id="alert"></div>
+    <div class="map map-tall mb-2" id="map"></div>
+
+    <div class="card">
+      <h2>District distribution</h2>
+      <div id="districts"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var COLOURS = { CRITICAL: "#dc2626", HIGH: "#ea580c", MEDIUM: "#ca8a04", LOW: "#0891b2" };
+  var allPoints = [];
+  var layer = null;
+
+  var map = L.map("map").setView([20.5937, 78.9629], 5);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors", maxZoom: 19,
+  }).addTo(map);
+
+  function plot() {
+    var filter = document.getElementById("filter-level").value;
+    var points = allPoints.filter(function (point) {
+      if (filter === "CRITICAL") return point.level === "CRITICAL";
+      if (filter === "HIGH") return point.level === "CRITICAL" || point.level === "HIGH";
+      return true;
+    });
+
+    if (layer) map.removeLayer(layer);
+    layer = L.layerGroup().addTo(map);
+
+    var bounds = [];
+    points.forEach(function (point) {
+      // Radius scales with the triage weight, so severe clusters read as heavier.
+      var radius = 8 + point.weight * 16;
+      L.circleMarker([point.lat, point.lng], {
+        radius: radius,
+        color: COLOURS[point.level] || "#64748b",
+        weight: 1,
+        fillColor: COLOURS[point.level] || "#64748b",
+        fillOpacity: .35,
+      }).addTo(layer).bindPopup(
+        "<strong>" + ui.esc(point.reference) + "</strong><br>" +
+        ui.esc(point.level || "not triaged") + " · " + ui.esc(point.status.replace(/_/g, " ")) +
+        '<br><a href="/command/cases/' + encodeURIComponent(point.reference) + '/">Open case</a>'
+      );
+      bounds.push([point.lat, point.lng]);
+    });
+
+    document.getElementById("point-count").textContent = points.length + " case(s) plotted";
+    if (bounds.length) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+  }
+
+  function renderDistricts(rows) {
+    var container = document.getElementById("districts");
+    if (!rows.length) {
+      container.innerHTML = '<p class="muted small" style="margin:0">No district data yet.</p>';
+      return;
+    }
+    var max = Math.max.apply(null, rows.map(function (r) { return r.total; }).concat([1]));
+    container.innerHTML =
+      '<div class="table-wrap"><table><thead><tr><th>District</th><th>Volume</th>' +
+      '<th class="num">Total</th><th class="num">Critical</th><th class="num">Resolved</th>' +
+      "</tr></thead><tbody>" +
+      rows.map(function (row) {
+        return "<tr><td><strong>" + ui.esc(row.district) + "</strong></td>" +
+          '<td style="min-width:150px"><div class="progress-track"><div class="progress-fill" style="width:' +
+            Math.round((row.total / max) * 100) + '%;background:var(--red-600)"></div></div></td>' +
+          '<td class="num">' + row.total + "</td>" +
+          '<td class="num">' + (row.critical
+            ? '<strong style="color:var(--red-700)">' + row.critical + "</strong>" : "0") + "</td>" +
+          '<td class="num">' + row.resolved + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+  }
+
+  document.getElementById("filter-level").addEventListener("change", plot);
+
+  document.addEventListener("DOMContentLoaded", function () {
+    api.analytics.heatmap(2000).then(function (points) {
+      allPoints = points || [];
+      if (!allPoints.length) {
+        ui.flash("#alert", "info", "No cases have been reported yet, so there is nothing to plot.");
+        return;
+      }
+      plot();
+    }).catch(function (error) { ui.flash("#alert", "error", error.message); });
+
+    api.get("/api/analytics/geographic/")
+      .then(renderDistricts)
+      .catch(function () {
+        document.getElementById("districts").innerHTML =
+          '<p class="muted small" style="margin:0">District data unavailable.</p>';
+      });
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}My reports — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>My reports</h1>
+      <p>Every damage report you have filed, and where each one has reached.</p>
+    </div>
+
+    <div class="card card-tight mb-2">
+      <div class="row">
+        <select id="filter-status" style="max-width:240px">
+          <option value="">All statuses</option>
+          <option value="DRAFT">Draft</option>
+          <option value="SUBMITTED">Submitted</option>
+          <option value="ASSIGNED">Assigned to officer</option>
+          <option value="INSPECTION_PENDING">Inspection in progress</option>
+          <option value="PENDING_APPROVAL">Pending approval</option>
+          <option value="APPROVED">Approved</option>
+          <option value="PAYOUT_COMPLETED">Relief completed</option>
+          <option value="REJECTED">Rejected</option>
+        </select>
+        <a class="btn btn-primary" href="{% url 'web:citizen_report_form' %}" style="margin-left:auto">Report damage</a>
+      </div>
+    </div>
+
+    <div id="reports"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function render(reports) {
+    var container = document.getElementById("reports");
+    if (!reports.length) {
+      ui.empty(container, "No reports found", "Try clearing the filter, or file a new report.");
+      return;
+    }
+
+    container.innerHTML =
+      '<div class="table-wrap"><table>' +
+      "<thead><tr>" +
+        "<th>Reference</th><th>Type</th><th>Location</th><th>Urgency</th>" +
+        "<th>Status</th><th>Progress</th><th>Filed</th>" +
+      "</tr></thead><tbody>" +
+      reports.map(function (report) {
+        return "<tr style='cursor:pointer' onclick=\"window.location.href='/citizen/reports/" +
+          encodeURIComponent(report.reference) + "/'\">" +
+          '<td class="ref">' + ui.esc(report.reference) + "</td>" +
+          "<td>" + ui.esc(report.disaster_type_display) + "</td>" +
+          "<td>" + ui.esc(report.address || report.district || "—") + "</td>" +
+          "<td>" + ui.severityBadge(report.triage_level) + "</td>" +
+          "<td>" + ui.statusBadge(report.status, report.status_display) + "</td>" +
+          '<td style="min-width:120px">' +
+            '<div class="progress-track"><div class="progress-fill" style="width:' +
+            report.progress_percent + '%"></div></div>' +
+            '<span class="small muted">' + report.progress_percent + "%</span></td>" +
+          "<td>" + ui.date(report.created_at) + "</td>" +
+        "</tr>";
+      }).join("") +
+      "</tbody></table></div>";
+  }
+
+  function load() {
+    var status = document.getElementById("filter-status").value;
+    ui.loading("#reports", "Loading your reports…");
+
+    api.reports.list({ status: status, page_size: 100 }).then(function (page) {
+      offline.cache.put("citizen.reports.all", page.results || []);
+      render(page.results || []);
+    }).catch(function (error) {
+      offline.cache.get("citizen.reports.all").then(function (cached) {
+        if (cached && cached.data) {
+          render(cached.data);
+          document.getElementById("reports").insertAdjacentHTML("afterbegin",
+            '<div class="alert alert-warning">Showing data saved on this device — last updated ' +
+            ui.date(cached.savedAt, true) + ".</div>");
+        } else {
+          ui.errorBox("#reports", error.message);
+        }
+      });
+    });
+  }
+
+  document.getElementById("filter-status").addEventListener("change", load);
+  document.addEventListener("DOMContentLoaded", load);
+</script>
+{% endblock %}

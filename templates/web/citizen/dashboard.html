@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}My dashboard — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>Welcome, {{ user.first_name|default:user.username }}</h1>
+      <p>Report damage, follow your cases, and track your relief.</p>
+    </div>
+
+    <!-- The primary action is deliberately the largest thing on the page.
+         Section 23: a citizen may be using this under stress. -->
+    <div class="card mb-3" style="background:linear-gradient(135deg,var(--navy-900),var(--navy-700)); border:0">
+      <div class="row" style="justify-content:space-between; gap:1.5rem">
+        <div>
+          <h2 style="color:#fff; margin-bottom:.35rem">Need to report damage?</h2>
+          <p style="color:var(--slate-300); margin:0">
+            Takes about two minutes. Works even with no signal.
+          </p>
+        </div>
+        <a class="btn btn-lg btn-primary" href="{% url 'web:citizen_report_form' %}">Report damage</a>
+      </div>
+    </div>
+
+    <div class="grid grid-4 mb-3" id="summary"></div>
+
+    <div class="card-header">
+      <h2>Your recent reports</h2>
+      <a class="btn btn-sm btn-outline" href="{% url 'web:citizen_reports' %}">View all</a>
+    </div>
+    <div id="reports"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function statTile(label, value, modifier, meta) {
+    return '<div class="stat ' + (modifier || "") + '">' +
+      '<div class="stat-label">' + ui.esc(label) + "</div>" +
+      '<div class="stat-value">' + value + "</div>" +
+      (meta ? '<div class="stat-meta">' + ui.esc(meta) + "</div>" : "") +
+      "</div>";
+  }
+
+  function renderReports(reports) {
+    var container = document.getElementById("reports");
+    if (!reports.length) {
+      ui.empty(container, "No reports yet",
+               "When you report damage it will appear here, and you can follow its progress.");
+      return;
+    }
+
+    container.innerHTML = '<div class="grid grid-2">' + reports.map(function (report) {
+      return '<a class="card card-tight" style="text-decoration:none;color:inherit;display:block" href="/citizen/reports/' +
+        encodeURIComponent(report.reference) + '/">' +
+        '<div class="row" style="justify-content:space-between;margin-bottom:.6rem">' +
+          '<span class="ref">' + ui.esc(report.reference) + "</span>" +
+          ui.severityBadge(report.triage_level) +
+        "</div>" +
+        "<h3 style='margin-bottom:.3rem'>" + ui.esc(report.disaster_type_display) + "</h3>" +
+        '<p class="small muted" style="margin-bottom:.75rem">' +
+          ui.esc(report.address || report.district || "Location recorded") + " · " +
+          ui.date(report.created_at) + "</p>" +
+        '<div class="row" style="justify-content:space-between;margin-bottom:.4rem">' +
+          ui.statusBadge(report.status, report.status_display) +
+          '<span class="small muted">' + report.progress_percent + "%</span>" +
+        "</div>" +
+        '<div class="progress-track"><div class="progress-fill" style="width:' +
+          report.progress_percent + '%"></div></div>' +
+        "</a>";
+    }).join("") + "</div>";
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    ui.loading("#reports", "Loading your reports…");
+
+    api.reports.list({ page: 1 }).then(function (page) {
+      var reports = page.results || [];
+
+      // Cache for offline reading - Section 13.
+      offline.cache.put("citizen.reports", reports);
+
+      var open = reports.filter(function (r) {
+        return ["PAYOUT_COMPLETED", "CANCELLED", "REJECTED"].indexOf(r.status) === -1;
+      }).length;
+      var completed = reports.filter(function (r) { return r.status === "PAYOUT_COMPLETED"; }).length;
+      var critical = reports.filter(function (r) { return r.triage_level === "CRITICAL"; }).length;
+
+      document.getElementById("summary").innerHTML =
+        statTile("Total reports", ui.number(page.count), "is-info") +
+        statTile("In progress", ui.number(open), "is-warning") +
+        statTile("Critical", ui.number(critical), critical ? "is-critical" : "") +
+        statTile("Relief completed", ui.number(completed), "is-good");
+
+      renderReports(reports.slice(0, 6));
+    }).catch(function (error) {
+      // Offline: fall back to whatever this device cached last time.
+      offline.cache.get("citizen.reports").then(function (cached) {
+        if (cached && cached.data) {
+          renderReports(cached.data.slice(0, 6));
+          document.getElementById("summary").innerHTML =
+            '<div class="alert alert-warning" style="grid-column:1/-1">' +
+            "Showing data saved on this device — last updated " + ui.date(cached.savedAt, true) + "." +
+            "</div>";
+        } else {
+          ui.errorBox("#reports", error.message);
+        }
+      });
+    });
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{#
+  The citizen's case view.
+
+  This page is where "audit transparency" (Section 5) stops being a slogan. The
+  citizen sees the same case history an administrator sees, the same itemised
+  compensation breakdown, and the recorded reason for any decision made about
+  their claim.
+#}
+
+{% block title %}Case {{ reference }} — ResQNet{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .5rem 1.25rem; font-size: .94rem; }
+  .kv dt { color: var(--text-soft); font-weight: 600; }
+  .kv dd { margin: 0; }
+  .evidence { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); gap: .75rem; }
+  .evidence img { border-radius: var(--radius); border: 1px solid var(--border); aspect-ratio: 4/3; object-fit: cover; width: 100%; }
+  .money-line { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid var(--border); }
+  .money-line:last-of-type { border-bottom: 0; }
+  .money-total { display: flex; justify-content: space-between; gap: 1rem; padding-top: .9rem; margin-top: .5rem;
+                 border-top: 2px solid var(--text); font-weight: 800; font-size: 1.15rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <a class="btn btn-sm btn-ghost mb-2" href="{% url 'web:citizen_reports' %}">← All my reports</a>
+    <div id="case"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  "use strict";
+  var reference = "{{ reference|escapejs }}";
+
+  function severityRow(label, value) {
+    if (!value || value === "NONE") return "";
+    return '<div class="money-line"><span>' + ui.esc(label) + "</span><strong>" +
+           ui.esc(value.charAt(0) + value.slice(1).toLowerCase()) + "</strong></div>";
+  }
+
+  function renderCase(report, timeline, claim, payout, inspection) {
+    var html = "";
+
+    /* ---- Header ---- */
+    html +=
+      '<div class="card mb-2">' +
+        '<div class="row" style="justify-content:space-between;align-items:flex-start">' +
+          "<div>" +
+            '<span class="ref" style="font-size:1rem">' + ui.esc(report.reference) + "</span>" +
+            "<h1 style='margin:.25rem 0 .4rem'>" + ui.esc(report.disaster_type_display) + " — " +
+              ui.esc(report.damage_category_display) + "</h1>" +
+            '<p class="muted" style="margin:0">Filed ' + ui.date(report.created_at, true) + "</p>" +
+          "</div>" +
+          '<div class="row" style="gap:.5rem">' + ui.severityBadge(report.triage_level) +
+            ui.statusBadge(report.status, report.status_display) + "</div>" +
+        "</div>" +
+        '<div class="mt-2">' +
+          '<div class="row" style="justify-content:space-between;margin-bottom:.35rem">' +
+            '<span class="small muted">Case progress</span>' +
+            '<span class="small"><strong>' + report.progress_percent + "%</strong></span></div>" +
+          '<div class="progress-track"><div class="progress-fill" style="width:' +
+            report.progress_percent + '%"></div></div>' +
+        "</div>" +
+      "</div>";
+
+    /* ---- Rejection / review notice, if any ---- */
+    if (report.status === "REJECTED" || report.status === "NEEDS_REVIEW") {
+      var decision = timeline.filter(function (e) {
+        return e.action === "ADMIN_REJECTED" || e.action === "REVIEW_REQUESTED";
+      }).pop();
+      if (decision) {
+        html += '<div class="alert alert-' +
+          (report.status === "REJECTED" ? "error" : "warning") + '">' +
+          "<strong>" + ui.esc(decision.action_display) + "</strong>" +
+          ui.esc(decision.metadata.reason || "") + "</div>";
+      }
+    }
+
+    html += '<div class="grid grid-2">';
+
+    /* ---- Details ---- */
+    html +=
+      '<div class="card">' +
+        "<h2>Your report</h2>" +
+        "<p>" + ui.esc(report.description) + "</p>" +
+        '<dl class="kv mt-2">' +
+          "<dt>Location</dt><dd>" + ui.esc(report.address || "—") + "</dd>" +
+          "<dt>District</dt><dd>" + ui.esc(report.district || "—") + "</dd>" +
+          "<dt>Coordinates</dt><dd class='mono small'>" + ui.esc(report.latitude) + ", " +
+            ui.esc(report.longitude) + "</dd>" +
+          "<dt>People affected</dt><dd>" + ui.number(report.people_affected) + "</dd>" +
+          "<dt>Urgency score</dt><dd>" + report.priority_score + " (" +
+            ui.esc(report.triage_level || "not yet triaged") + ")</dd>" +
+        "</dl>" +
+      "</div>";
+
+    /* ---- Map ---- */
+    html +=
+      '<div class="card">' +
+        "<h2>Location</h2>" +
+        '<div class="map" id="case-map" style="height:300px"></div>' +
+      "</div>";
+
+    /* ---- Evidence ---- */
+    if (report.photos && report.photos.length) {
+      html +=
+        '<div class="card">' +
+          "<h2>Your photographs</h2>" +
+          '<div class="evidence">' +
+            report.photos.map(function (photo) {
+              return '<a href="' + ui.esc(photo.image_url) + '" target="_blank" rel="noopener">' +
+                     '<img src="' + ui.esc(photo.image_url) + '" alt="' +
+                     ui.esc(photo.caption || "Damage photograph") + '"></a>';
+            }).join("") +
+          "</div>" +
+        "</div>";
+    }
+
+    /* ---- Inspection findings ---- */
+    if (inspection) {
+      html +=
+        '<div class="card">' +
+          "<h2>Officer's verified findings</h2>" +
+          '<p class="small muted">Inspected by ' + ui.esc(inspection.officer_name || "field officer") +
+            (inspection.signed_at ? " · signed off " + ui.date(inspection.signed_at, true) : "") + "</p>" +
+          severityRow("Structural damage", inspection.structural_damage) +
+          severityRow("Roof damage", inspection.roof_damage) +
+          severityRow("Wall damage", inspection.wall_damage) +
+          severityRow("Foundation damage", inspection.foundation_damage) +
+          severityRow("Electrical damage", inspection.electrical_damage) +
+          severityRow("Water damage", inspection.water_damage) +
+          severityRow("Household damage", inspection.household_damage) +
+          '<div class="money-line"><span>Property habitable</span><strong>' +
+            (inspection.is_habitable ? "Yes" : "No") + "</strong></div>" +
+          (inspection.remarks ? '<p class="small mt-2"><strong>Officer remarks:</strong> ' +
+            ui.esc(inspection.remarks) + "</p>" : "") +
+        "</div>";
+    }
+
+    /* ---- Compensation ---- */
+    if (claim) {
+      html +=
+        '<div class="card">' +
+          "<h2>Compensation</h2>" +
+          claim.lines.map(function (line) {
+            return '<div class="money-line"><span>' + ui.esc(line.label) +
+              (line.severity ? ' <span class="small muted">(' +
+                ui.esc(line.severity.toLowerCase()) + ")</span>" : "") +
+              "</span><strong>" + ui.money(line.amount) + "</strong></div>";
+          }).join("") +
+          '<div class="money-total"><span>Total assessed</span><span>' +
+            ui.money(claim.calculated_amount) + "</span></div>" +
+          (claim.was_adjusted ?
+            '<div class="alert alert-warning mt-2"><strong>Amount adjusted to ' +
+            ui.money(claim.approved_amount) + "</strong>" + ui.esc(claim.adjustment_reason) + "</div>" : "") +
+        "</div>";
+    }
+
+    /* ---- Payout ---- */
+    if (payout) {
+      html +=
+        '<div class="card">' +
+          "<h2>Relief payment</h2>" +
+          '<dl class="kv">' +
+            "<dt>Amount</dt><dd><strong>" + ui.money(payout.amount) + "</strong></dd>" +
+            "<dt>Status</dt><dd>" + ui.statusBadge(payout.status, payout.status_display) + "</dd>" +
+            "<dt>Reference</dt><dd class='mono small'>" + ui.esc(payout.reference_number) + "</dd>" +
+            "<dt>Method</dt><dd>" + ui.esc(payout.payment_method.replace(/_/g, " ").toLowerCase()) + "</dd>" +
+          "</dl>" +
+          (payout.is_simulated ?
+            '<p class="small muted mt-2" style="margin-bottom:0">Payout processing is simulated in this ' +
+            "deployment. No banking system is connected.</p>" : "") +
+        "</div>";
+    }
+
+    html += "</div>";   // end grid
+
+    /* ---- Case history ---- */
+    html +=
+      '<div class="card mt-2">' +
+        "<h2>Case history</h2>" +
+        '<p class="small muted">Every action taken on your case, in order.</p>' +
+        '<ul class="timeline">' +
+          timeline.map(function (event) {
+            return "<li>" +
+              '<div class="t-title">' + ui.esc(event.action_display) + "</div>" +
+              '<div class="t-meta">' + ui.date(event.timestamp, true) +
+                " · " + ui.esc(event.performed_by || "System") +
+                (event.new_state ? " · → " + ui.esc(event.new_state.replace(/_/g, " ")) : "") +
+              "</div>" +
+              (event.metadata && event.metadata.reason ?
+                '<p class="small" style="margin:.35rem 0 0">' + ui.esc(event.metadata.reason) + "</p>" : "") +
+            "</li>";
+          }).join("") +
+        "</ul>" +
+      "</div>";
+
+    document.getElementById("case").innerHTML = html;
+
+    /* ---- Draw the map after the container exists ---- */
+    var lat = parseFloat(report.latitude), lng = parseFloat(report.longitude);
+    if (!isNaN(lat) && !isNaN(lng) && window.L) {
+      var map = L.map("case-map").setView([lat, lng], 15);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors", maxZoom: 19,
+      }).addTo(map);
+      L.marker([lat, lng]).addTo(map).bindPopup(ui.esc(report.reference));
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    ui.loading("#case", "Loading your case…");
+
+    // Find the case by reference, then gather everything attached to it.
+    api.reports.list({ search: reference, page_size: 5 }).then(function (page) {
+      var match = (page.results || []).filter(function (r) { return r.reference === reference; })[0];
+      if (!match) {
+        ui.empty("#case", "Case not found", "This case does not exist, or it is not yours.");
+        return;
+      }
+
+      return Promise.all([
+        api.reports.detail(match.id),
+        api.reports.timeline(match.id),
+        api.compensation.claims({ page_size: 100 }).catch(function () { return { results: [] }; }),
+        api.approvals.payouts({ page_size: 100 }).catch(function () { return { results: [] }; }),
+        api.get("/api/inspections/?page_size=100").catch(function () { return { results: [] }; }),
+      ]).then(function (results) {
+        var report = results[0];
+        var timeline = results[1];
+
+        var claimRow = (results[2].results || []).filter(function (c) { return c.report === report.id; })[0];
+        var payout = (results[3].results || []).filter(function (p) { return p.report === report.id; })[0];
+        var inspection = (results[4].results || []).filter(function (i) { return i.report === report.id; })[0];
+
+        // The breakdown endpoint gives the citizen-facing itemisation.
+        var claimPromise = claimRow
+          ? api.compensation.breakdown(claimRow.id).catch(function () { return null; })
+          : Promise.resolve(null);
+
+        return claimPromise.then(function (claim) {
+          renderCase(report, timeline, claim, payout, inspection);
+        });
+      });
+    }).catch(function (error) {
+      ui.errorBox("#case", error.message);
+    });
+  });
+})();
+</script>
+{% endblock %}

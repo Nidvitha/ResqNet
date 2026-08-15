@@ -1,0 +1,12 @@
+Django==5.2.17
+djangorestframework==3.16.1
+django-environ==0.12.0
+django-cors-headers==4.7.0
+Pillow==11.3.0
+
+# Uncomment when moving from SQLite to PostgreSQL:
+# psycopg[binary]==3.2.9
+
+# Uncomment for production WSGI serving:
+# gunicorn==23.0.0
+# whitenoise==6.9.0

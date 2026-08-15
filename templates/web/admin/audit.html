@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{#
+  The audit log viewer (Section 22).
+
+  Note what this screen does NOT have: no edit control, no delete button, no bulk
+  action. That is deliberate and matches the API, which routes only GET for audit
+  records. An audit trail an administrator can quietly amend provides no
+  assurance at all.
+#}
+
+{% block title %}Audit log — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>Audit log</h1>
+      <p>Every significant action taken on the platform, in order. Append-only — records cannot be edited or deleted.</p>
+    </div>
+
+    <div class="card card-tight mb-2">
+      <div class="row">
+        <select id="filter-action" style="max-width:280px">
+          <option value="">All actions</option>
+        </select>
+        <input type="text" id="filter-user" placeholder="Filter by username" style="max-width:200px">
+        <input type="text" id="filter-entity" placeholder="Entity type (e.g. DisasterReport)" style="max-width:240px">
+        <button class="btn btn-sm btn-outline" id="clear">Clear</button>
+        <span class="small muted" id="count" style="margin-left:auto"></span>
+      </div>
+    </div>
+
+    <div class="alert alert-info">
+      <strong>About this record</strong>
+      These entries are written by the application and never modified afterwards. This is
+      tamper-evident at the application layer — it is a standard database table, not a
+      cryptographically immutable ledger.
+    </div>
+
+    <div id="events"></div>
+    <div class="row row-end mt-2" id="pager"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  var page = 1;
+
+  var ACTION_TONE = {
+    ADMIN_APPROVED: "badge-success",
+    ADMIN_REJECTED: "badge-critical",
+    REVIEW_REQUESTED: "badge-warning",
+    PAYOUT_COMPLETED: "badge-success",
+    PAYOUT_INITIATED: "badge-info",
+    OFFICER_SIGNED: "badge-success",
+    OFFICER_ASSIGNED: "badge-info",
+    TRIAGE_COMPLETED: "badge-info",
+    REPORT_CREATED: "badge-neutral",
+    REPORT_SUBMITTED: "badge-info",
+    OFFLINE_SYNC: "badge-warning",
+  };
+
+  function render(data) {
+    var container = document.getElementById("events");
+    var events = data.results || [];
+
+    if (!events.length) {
+      ui.empty(container, "No audit events match", "Try clearing the filters.");
+      document.getElementById("pager").innerHTML = "";
+      return;
+    }
+
+    container.innerHTML =
+      '<div class="table-wrap"><table><thead><tr>' +
+        "<th>When</th><th>Action</th><th>Entity</th><th>Who</th><th>Transition</th><th>Details</th>" +
+      "</tr></thead><tbody>" +
+      events.map(function (event) {
+        var tone = ACTION_TONE[event.action] || "badge-neutral";
+        var details = "";
+        if (event.metadata) {
+          if (event.metadata.reason) details = ui.esc(event.metadata.reason);
+          else if (event.metadata.score !== undefined) details = "Score " + event.metadata.score + " · " + ui.esc(event.metadata.level || "");
+          else if (event.metadata.total) details = "Total " + ui.money(event.metadata.total);
+          else if (event.metadata.approved_amount) details = "Amount " + ui.money(event.metadata.approved_amount);
+          else if (event.metadata.officer_name) details = "Officer: " + ui.esc(event.metadata.officer_name);
+          else if (event.metadata.synced !== undefined) details = event.metadata.synced + " synced, " + event.metadata.duplicates + " duplicate(s)";
+        }
+
+        return "<tr>" +
+          '<td class="small" style="white-space:nowrap">' + ui.date(event.timestamp, true) + "</td>" +
+          '<td><span class="badge ' + tone + '">' + ui.esc(event.action_display) + "</span></td>" +
+          "<td><span class='small muted'>" + ui.esc(event.entity_type) + "</span><br>" +
+            "<span class='ref'>" + ui.esc(event.entity_label || event.entity_id) + "</span></td>" +
+          "<td>" + ui.esc(event.performed_by_name || "System") +
+            (event.performed_by_role ? "<br><span class='small muted'>" +
+              ui.esc(event.performed_by_role.replace(/_/g, " ")) + "</span>" : "") + "</td>" +
+          '<td class="small mono">' +
+            (event.previous_state || event.new_state
+              ? ui.esc(event.previous_state || "—") + " → " + ui.esc(event.new_state || "—")
+              : "—") + "</td>" +
+          '<td class="small">' + (details || "—") + "</td>" +
+        "</tr>";
+      }).join("") + "</tbody></table></div>";
+
+    document.getElementById("count").textContent = ui.number(data.count) + " event(s) recorded";
+    document.getElementById("pager").innerHTML =
+      (data.previous ? '<button class="btn btn-sm btn-outline" id="prev">← Newer</button>' : "") +
+      '<span class="small muted" style="padding:0 .75rem">Page ' + page + "</span>" +
+      (data.next ? '<button class="btn btn-sm btn-outline" id="next">Older →</button>' : "");
+
+    var prev = document.getElementById("prev");
+    if (prev) prev.addEventListener("click", function () { page -= 1; load(); });
+    var next = document.getElementById("next");
+    if (next) next.addEventListener("click", function () { page += 1; load(); });
+  }
+
+  var timer = null;
+  function load() {
+    ui.loading("#events", "Loading audit trail…");
+    api.audit.events({
+      action: document.getElementById("filter-action").value,
+      user: document.getElementById("filter-user").value,
+      entity_type: document.getElementById("filter-entity").value,
+      page: page,
+      page_size: 50,
+    }).then(render).catch(function (error) { ui.errorBox("#events", error.message); });
+  }
+
+  function reload() { page = 1; load(); }
+  function debounced() { clearTimeout(timer); timer = setTimeout(reload, 350); }
+
+  document.getElementById("filter-action").addEventListener("change", reload);
+  document.getElementById("filter-user").addEventListener("input", debounced);
+  document.getElementById("filter-entity").addEventListener("input", debounced);
+  document.getElementById("clear").addEventListener("click", function () {
+    ["filter-action", "filter-user", "filter-entity"].forEach(function (id) {
+      document.getElementById(id).value = "";
+    });
+    reload();
+  });
+
+  document.addEventListener("DOMContentLoaded", function () {
+    api.audit.actions().then(function (actions) {
+      var select = document.getElementById("filter-action");
+      actions.forEach(function (action) {
+        var option = document.createElement("option");
+        option.value = action.value;
+        option.textContent = action.label;
+        select.appendChild(option);
+      });
+    }).catch(function () { /* the filter is a convenience, not a requirement */ });
+
+    load();
+  });
+})();
+</script>
+{% endblock %}

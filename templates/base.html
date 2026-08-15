@@ -1,0 +1,137 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ResQNet — Disaster Response &amp; Relief{% endblock %}</title>
+  <meta name="description" content="{% block description %}ResQNet is a disaster response and relief management platform connecting citizens, field officers and government approvers.{% endblock %}">
+  <meta name="theme-color" content="#0b1220">
+
+  <link rel="stylesheet" href="{% static 'css/resqnet.css' %}">
+  <link rel="manifest" href="{% static 'manifest.json' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="{% url 'web:home' %}">
+        <span class="brand-mark" aria-hidden="true">◈</span>
+        <span>Res<span class="accent">Q</span>Net</span>
+      </a>
+
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Toggle navigation">☰</button>
+
+      <nav class="site-nav" id="site-nav" aria-label="Main">
+        {% if user.is_authenticated %}
+          {% if user.is_admin_role or user.is_superuser %}
+            <a href="{% url 'web:admin_dashboard' %}">Dashboard</a>
+            <a href="{% url 'web:admin_cases' %}">Cases</a>
+            <a href="{% url 'web:admin_officers' %}">Officers</a>
+            <a href="{% url 'web:admin_heatmap' %}">Heatmap</a>
+            <a href="{% url 'web:admin_audit' %}">Audit</a>
+          {% elif user.is_field_officer %}
+            <a href="{% url 'web:officer_dashboard' %}">Assignments</a>
+            <a href="{% url 'web:officer_map' %}">Map</a>
+          {% else %}
+            <a href="{% url 'web:citizen_dashboard' %}">My dashboard</a>
+            <a href="{% url 'web:citizen_reports' %}">My reports</a>
+            <a href="{% url 'web:citizen_report_form' %}">Report damage</a>
+          {% endif %}
+          <span class="badge badge-neutral" style="margin-left:.5rem">{{ user.get_full_name|default:user.username }}</span>
+          <button type="button" class="btn btn-sm btn-on-dark" id="logout-button">Log out</button>
+        {% else %}
+          <a href="{% url 'web:home' %}#how">How it works</a>
+          <a href="{% url 'web:home' %}#access">Portals</a>
+          <a href="{% url 'web:about' %}">About</a>
+          <a href="{% url 'web:login' %}">Log in</a>
+          <a href="{% url 'web:citizen_report_form' %}" class="btn btn-sm btn-primary">Report damage</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <h4>ResQNet</h4>
+          <p style="margin:0">Report. Respond. Recover.</p>
+          <p class="small" style="margin-top:.6rem">
+            A disaster response and relief management platform built as an academic project.
+          </p>
+        </div>
+        <div>
+          <h4>Platform</h4>
+          <ul class="footer-list">
+            <li><a href="{% url 'web:about' %}">About</a></li>
+            <li><a href="{% url 'web:home' %}#how">How it works</a></li>
+            <li><a href="{% url 'web:home' %}#features">Features</a></li>
+            <li><a href="{% url 'web:contact' %}">Contact</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Legal</h4>
+          <ul class="footer-list">
+            <li><a href="{% url 'web:privacy' %}">Privacy</a></li>
+            <li><a href="{% url 'web:terms' %}">Terms</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Emergency information</h4>
+          <div class="emergency-note">
+            <strong>In a life-threatening emergency, call your national emergency number.</strong>
+            <p class="small" style="margin:.4rem 0 0">
+              ResQNet records damage for relief assessment. It is <em>not</em> connected to
+              emergency dispatch services and does not summon help.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <p style="margin:0">© {% now "Y" %} ResQNet — academic project.</p>
+        <p style="margin:0" class="small">Payout processing is simulated. No banking system is connected.</p>
+      </div>
+    </div>
+  </footer>
+
+  <div class="offline-bar" id="offline-bar" role="status" aria-live="polite"></div>
+
+  <script src="{% static 'js/api.js' %}"></script>
+  <script src="{% static 'js/ui.js' %}"></script>
+  <script src="{% static 'js/offline.js' %}"></script>
+  <script>
+    // The service worker must be registered from the site root so its scope
+    // covers every page, which is why /sw.js is served by a URL rather than
+    // straight from the static folder.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("/sw.js").catch(function () {
+          // No service worker means no offline page caching, but the IndexedDB
+          // queue still works. Not worth alarming the user about.
+        });
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      var logout = document.getElementById("logout-button");
+      if (logout) {
+        logout.addEventListener("click", function () {
+          api.auth.logout().then(function () { window.location.href = "{% url 'web:home' %}"; });
+        });
+      }
+      // Mark the current page in the navigation for orientation.
+      document.querySelectorAll(".site-nav a").forEach(function (link) {
+        if (link.getAttribute("href") === window.location.pathname) link.classList.add("is-active");
+      });
+    });
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

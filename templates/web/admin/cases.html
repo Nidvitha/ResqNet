@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Case review — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>Case review</h1>
+      <p>Every case on the platform. The critical queue is filtered by default.</p>
+    </div>
+
+    <div class="card card-tight mb-2">
+      <div class="row">
+        <input type="search" id="filter-search" placeholder="Search by reference…" style="max-width:220px">
+        <select id="filter-status" style="max-width:220px">
+          <option value="">All statuses</option>
+          <option value="PENDING_APPROVAL">Pending approval</option>
+          <option value="NEEDS_REVIEW">Needs review</option>
+          <option value="TRIAGED">Triaged — awaiting assignment</option>
+          <option value="ASSIGNED">Assigned</option>
+          <option value="INSPECTION_PENDING">Inspection in progress</option>
+          <option value="APPROVED">Approved</option>
+          <option value="PAYOUT_PENDING">Payout pending</option>
+          <option value="PAYOUT_INITIATED">Payout initiated</option>
+          <option value="PAYOUT_COMPLETED">Relief completed</option>
+          <option value="REJECTED">Rejected</option>
+        </select>
+        <select id="filter-severity" style="max-width:180px">
+          <option value="">All urgencies</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
+        <input type="text" id="filter-district" placeholder="District" style="max-width:170px">
+        <button class="btn btn-sm btn-outline" id="clear">Clear</button>
+      </div>
+    </div>
+
+    <div id="cases"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  function render(reports) {
+    var container = document.getElementById("cases");
+    if (!reports.length) {
+      ui.empty(container, "No cases match", "Try widening or clearing the filters.");
+      return;
+    }
+
+    container.innerHTML =
+      '<div class="table-wrap"><table><thead><tr>' +
+        "<th>Reference</th><th>Citizen</th><th>Type</th><th>District</th>" +
+        "<th class='num'>Score</th><th>Urgency</th><th>Status</th><th>Filed</th><th></th>" +
+      "</tr></thead><tbody>" +
+      reports.map(function (report) {
+        return "<tr>" +
+          '<td class="ref">' + ui.esc(report.reference) + "</td>" +
+          "<td>" + ui.esc(report.citizen_name || "—") + "</td>" +
+          "<td>" + ui.esc(report.disaster_type_display) + "</td>" +
+          "<td>" + ui.esc(report.district || "—") + "</td>" +
+          '<td class="num"><strong>' + report.priority_score + "</strong></td>" +
+          "<td>" + ui.severityBadge(report.triage_level) + "</td>" +
+          "<td>" + ui.statusBadge(report.status, report.status_display) + "</td>" +
+          "<td>" + ui.date(report.created_at) + "</td>" +
+          '<td><a class="btn btn-sm btn-outline" href="/command/cases/' +
+            encodeURIComponent(report.reference) + '/">Open</a></td>' +
+        "</tr>";
+      }).join("") +
+      "</tbody></table></div>";
+  }
+
+  var timer = null;
+  function load() {
+    ui.loading("#cases", "Loading cases…");
+    api.reports.list({
+      status: document.getElementById("filter-status").value,
+      triage_level: document.getElementById("filter-severity").value,
+      district: document.getElementById("filter-district").value,
+      search: document.getElementById("filter-search").value,
+      page_size: 100,
+    }).then(function (page) {
+      render(page.results || []);
+    }).catch(function (error) { ui.errorBox("#cases", error.message); });
+  }
+
+  function debounced() { clearTimeout(timer); timer = setTimeout(load, 300); }
+
+  ["filter-status", "filter-severity"].forEach(function (id) {
+    document.getElementById(id).addEventListener("change", load);
+  });
+  ["filter-search", "filter-district"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", debounced);
+  });
+  document.getElementById("clear").addEventListener("click", function () {
+    ["filter-status", "filter-severity", "filter-district", "filter-search"].forEach(function (id) {
+      document.getElementById(id).value = "";
+    });
+    load();
+  });
+
+  document.addEventListener("DOMContentLoaded", function () {
+    // Land on the queue that actually needs a decision.
+    document.getElementById("filter-status").value = "PENDING_APPROVAL";
+    load();
+  });
+})();
+</script>
+{% endblock %}

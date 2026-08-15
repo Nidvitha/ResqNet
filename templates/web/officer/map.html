@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Case map — ResQNet{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .legend { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: .87rem; }
+  .legend span { display: inline-flex; align-items: center; gap: .4rem; }
+  .legend i { width: 14px; height: 14px; border-radius: 50%; display: inline-block; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+  .popup-case h4 { margin: 0 0 .3rem; font-size: .95rem; }
+  .popup-case p { margin: 0 0 .5rem; font-size: .85rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>Case map</h1>
+      <p>Your open assignments, coloured by urgency. Tap a marker to open the inspection.</p>
+    </div>
+
+    <div class="card card-tight mb-2">
+      <div class="row" style="justify-content:space-between">
+        <div class="legend">
+          <span><i style="background:var(--sev-critical)"></i> Critical</span>
+          <span><i style="background:var(--sev-high)"></i> High</span>
+          <span><i style="background:var(--sev-medium)"></i> Medium</span>
+          <span><i style="background:var(--sev-low)"></i> Low</span>
+          <span><i style="background:#2563eb"></i> You</span>
+        </div>
+        <div class="row">
+          <button class="btn btn-sm btn-outline" id="locate-me">Show my position</button>
+          <a class="btn btn-sm btn-ghost" href="{% url 'web:officer_dashboard' %}">List view</a>
+        </div>
+      </div>
+    </div>
+
+    <div id="alert"></div>
+    <div class="map map-tall" id="map"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var COLOURS = { CRITICAL: "#dc2626", HIGH: "#ea580c", MEDIUM: "#ca8a04", LOW: "#0891b2" };
+
+  var map = L.map("map").setView([20.5937, 78.9629], 5);   // India, until we have points
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors", maxZoom: 19,
+  }).addTo(map);
+
+  function plot(assignments) {
+    if (!assignments.length) {
+      ui.flash("#alert", "info", "You have no open assignments to show on the map.");
+      return;
+    }
+
+    var bounds = [];
+    assignments.forEach(function (item) {
+      var report = item.report_detail;
+      var lat = parseFloat(report.latitude), lng = parseFloat(report.longitude);
+      if (isNaN(lat) || isNaN(lng)) return;
+
+      var colour = COLOURS[report.triage_level] || "#64748b";
+      L.circleMarker([lat, lng], {
+        radius: report.triage_level === "CRITICAL" ? 13 : 10,
+        color: "#fff", weight: 2, fillColor: colour, fillOpacity: .9,
+      }).addTo(map).bindPopup(
+        '<div class="popup-case">' +
+          "<h4>" + ui.esc(item.report_reference) + "</h4>" +
+          "<p>" + ui.esc(report.disaster_type_display) + " · score " + report.priority_score + "<br>" +
+            ui.esc(report.address || report.district || "") + "</p>" +
+          '<a class="btn btn-sm btn-primary" href="/officer/inspection/' + item.id + '/">Open inspection</a>' +
+        "</div>"
+      );
+      bounds.push([lat, lng]);
+    });
+
+    if (bounds.length) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+  }
+
+  document.getElementById("locate-me").addEventListener("click", function () {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(function (position) {
+      var here = [position.coords.latitude, position.coords.longitude];
+      L.circleMarker(here, {
+        radius: 9, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1,
+      }).addTo(map).bindPopup("You are here").openPopup();
+      map.setView(here, 14);
+    }, function () {
+      ui.flash("#alert", "warning", "Could not determine your position.");
+    });
+  });
+
+  document.addEventListener("DOMContentLoaded", function () {
+    api.dispatch.myAssignments()
+      .then(plot)
+      .catch(function () {
+        // Offline: the cached assignment list still has coordinates in it.
+        offline.cache.get("officer.assignments").then(function (cached) {
+          if (cached && cached.data) {
+            plot(cached.data);
+            ui.flash("#alert", "warning",
+                     "Offline — showing cached case locations. Map tiles may not load without a connection.");
+          } else {
+            ui.flash("#alert", "error", "No cached assignments available on this device.");
+          }
+        });
+      });
+  });
+})();
+</script>
+{% endblock %}

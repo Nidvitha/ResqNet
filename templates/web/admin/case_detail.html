@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{#
+  The administrator's review screen.
+
+  Section 18 lists exactly what an admin must be able to inspect before deciding:
+  the citizen report, photos, location, triage result, officer assignment, the
+  inspection, verified photos, the compensation breakdown, and the audit history.
+  All nine are on this page, because a decision made without them is not a review.
+#}
+
+{% block title %}Review {{ reference }} — ResQNet{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: .45rem 1.25rem; font-size: .92rem; }
+  .kv dt { color: var(--text-soft); font-weight: 600; }
+  .kv dd { margin: 0; }
+  .evidence { display: grid; grid-template-columns: repeat(auto-fill,minmax(130px,1fr)); gap: .7rem; }
+  .evidence img { border-radius: var(--radius); border: 1px solid var(--border); aspect-ratio: 4/3; object-fit: cover; width: 100%; }
+  .money-line { display: flex; justify-content: space-between; padding: .5rem 0; border-bottom: 1px solid var(--border); font-size: .93rem; }
+  .money-total { display: flex; justify-content: space-between; padding-top: .8rem; margin-top: .4rem; border-top: 2px solid var(--text); font-weight: 800; font-size: 1.1rem; }
+  .decision-panel { position: sticky; top: calc(var(--header-h) + 16px); }
+  .breakdown-item { display: flex; justify-content: space-between; font-size: .88rem; padding: .3rem 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <a class="btn btn-sm btn-ghost mb-2" href="{% url 'web:admin_cases' %}">← Case review</a>
+    <div id="alert"></div>
+    <div id="case"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  "use strict";
+  var reference = "{{ reference|escapejs }}";
+  var report = null, claim = null, inspection = null, payout = null;
+
+  function severityLine(label, value) {
+    if (!value || value === "NONE") return "";
+    return '<div class="money-line"><span>' + label + "</span><strong>" +
+           value.charAt(0) + value.slice(1).toLowerCase() + "</strong></div>";
+  }
+
+  function decisionPanel() {
+    var canDecide = ["PENDING_APPROVAL", "NEEDS_REVIEW"].indexOf(report.status) !== -1;
+    var canInitiate = report.status === "PAYOUT_PENDING";
+    var canComplete = report.status === "PAYOUT_INITIATED";
+
+    if (!canDecide && !canInitiate && !canComplete) {
+      return '<div class="card decision-panel"><h2>Decision</h2>' +
+        '<p class="muted small">This case is ' +
+        ui.esc((report.status_display || "").toLowerCase()) +
+        ". No action is available at this stage.</p></div>";
+    }
+
+    var html = '<div class="card decision-panel"><h2>Decision</h2>';
+
+    if (canDecide) {
+      html +=
+        '<div class="field"><label for="reason">Reason (required, recorded permanently)</label>' +
+          '<textarea id="reason" rows="3" placeholder="Explain your decision. The citizen can read this."></textarea></div>' +
+        '<div class="field"><label for="adjusted">Adjusted amount (optional)</label>' +
+          '<input type="number" id="adjusted" min="0" step="1000" placeholder="' +
+          (claim ? claim.calculated_amount : "0") + '">' +
+          '<p class="hint">Leave blank to authorise the calculated amount.</p></div>' +
+        '<button class="btn btn-success btn-block" id="approve">Approve relief</button>' +
+        '<button class="btn btn-outline btn-block mt-2" id="review">Request re-inspection</button>' +
+        '<button class="btn btn-danger btn-block mt-2" id="reject">Reject case</button>';
+    }
+    if (canInitiate) {
+      html +=
+        '<p class="small muted">Approved for <strong>' + ui.money(payout ? payout.amount : 0) + "</strong>.</p>" +
+        '<div class="field"><label for="method">Payment method</label>' +
+          '<select id="method"><option value="BANK_TRANSFER">Bank transfer</option>' +
+          '<option value="CHEQUE">Cheque</option><option value="CASH">Cash counter</option></select></div>' +
+        '<button class="btn btn-primary btn-block" id="initiate">Initiate payout</button>' +
+        '<p class="small muted mt-2" style="margin-bottom:0">Simulated — no banking system is connected.</p>';
+    }
+    if (canComplete) {
+      html +=
+        '<p class="small muted">Payout <span class="mono">' +
+          ui.esc(payout ? payout.reference_number : "") + "</span> is in progress.</p>" +
+        '<button class="btn btn-success btn-block" id="complete">Mark payout completed</button>';
+    }
+
+    return html + "</div>";
+  }
+
+  function render(timeline, assignments) {
+    var html = "";
+
+    /* ---- Header ---- */
+    html +=
+      '<div class="card mb-2"><div class="row" style="justify-content:space-between;align-items:flex-start">' +
+        "<div>" +
+          '<span class="ref" style="font-size:1rem">' + ui.esc(report.reference) + "</span>" +
+          "<h1 style='margin:.25rem 0 .35rem'>" + ui.esc(report.disaster_type_display) + " — " +
+            ui.esc(report.damage_category_display) + "</h1>" +
+          '<p class="muted" style="margin:0">' + ui.esc(report.citizen_name || "") +
+            (report.citizen_phone ? " · " + ui.esc(report.citizen_phone) : "") +
+            " · filed " + ui.date(report.created_at, true) + "</p>" +
+        "</div>" +
+        '<div class="row" style="gap:.5rem">' + ui.severityBadge(report.triage_level) +
+          ui.statusBadge(report.status, report.status_display) + "</div>" +
+      "</div></div>";
+
+    html += '<div class="grid" style="grid-template-columns:2fr 1fr;gap:1.25rem;align-items:start">';
+    html += "<div class='stack'>";
+
+    /* ---- 1. Citizen report ---- */
+    html += '<div class="card"><h2>Citizen report</h2><p>' + ui.esc(report.description) + "</p>" +
+      '<dl class="kv mt-2">' +
+        "<dt>Address</dt><dd>" + ui.esc(report.address || "—") + "</dd>" +
+        "<dt>District</dt><dd>" + ui.esc(report.district || "—") + "</dd>" +
+        "<dt>Coordinates</dt><dd class='mono small'>" + ui.esc(report.latitude) + ", " + ui.esc(report.longitude) +
+          " <span class='muted'>(" + ui.esc(report.location_source) + ")</span></dd>" +
+        "<dt>People affected</dt><dd>" + ui.number(report.people_affected) + "</dd>" +
+        "<dt>Filed offline</dt><dd>" + (report.created_offline ? "Yes" : "No") + "</dd>" +
+      "</dl></div>";
+
+    /* ---- 2. Triage result ---- */
+    html += '<div class="card"><h2>Triage result</h2>' +
+      '<div class="row" style="gap:1rem;margin-bottom:.75rem">' +
+        '<span class="stat-value" style="font-size:2rem">' + report.priority_score + "</span>" +
+        ui.severityBadge(report.triage_level) +
+      "</div><div id='triage-breakdown' class='small muted'>Loading score breakdown…</div></div>";
+
+    /* ---- 3. Location ---- */
+    html += '<div class="card"><h2>Location</h2><div class="map" id="case-map" style="height:280px"></div></div>';
+
+    /* ---- 4. Citizen photos ---- */
+    if (report.photos && report.photos.length) {
+      html += '<div class="card"><h2>Citizen evidence</h2><div class="evidence">' +
+        report.photos.map(function (photo) {
+          return '<a href="' + ui.esc(photo.image_url) + '" target="_blank" rel="noopener">' +
+                 '<img src="' + ui.esc(photo.image_url) + '" alt="Citizen photograph"></a>';
+        }).join("") + "</div></div>";
+    }
+
+    /* ---- 5. Officer assignment ---- */
+    if (assignments.length) {
+      html += '<div class="card"><h2>Officer assignment</h2>' +
+        assignments.map(function (item) {
+          return '<div style="padding:.6rem 0;border-bottom:1px solid var(--border)">' +
+            "<strong>" + ui.esc(item.officer_name || item.officer_username) + "</strong> " +
+            ui.statusBadge(item.status, item.status_display) +
+            '<div class="small muted">' + ui.esc(item.selection_reason || "") + "</div>" +
+            '<div class="small muted">Assigned ' + ui.date(item.assigned_at, true) +
+              (item.is_automatic ? " automatically" : " manually") + "</div>" +
+          "</div>";
+        }).join("") + "</div>";
+    }
+
+    /* ---- 6. Inspection ---- */
+    if (inspection) {
+      html += '<div class="card"><h2>Verified inspection</h2>' +
+        '<p class="small muted">' + ui.esc(inspection.officer_name || "") +
+          " · " + ui.statusBadge(inspection.status, inspection.status_display) +
+          (inspection.signed_at ? " · signed " + ui.date(inspection.signed_at, true) : "") +
+          (inspection.completed_offline ? ' · <span class="badge badge-info">completed offline</span>' : "") +
+        "</p>" +
+        severityLine("Structural damage", inspection.structural_damage) +
+        severityLine("Roof damage", inspection.roof_damage) +
+        severityLine("Wall damage", inspection.wall_damage) +
+        severityLine("Foundation damage", inspection.foundation_damage) +
+        severityLine("Electrical damage", inspection.electrical_damage) +
+        severityLine("Water damage", inspection.water_damage) +
+        severityLine("Household damage", inspection.household_damage) +
+        '<div class="money-line"><span>Habitable</span><strong>' +
+          (inspection.is_habitable ? "Yes" : "No") + "</strong></div>" +
+        '<div class="money-line"><span>Verified people affected</span><strong>' +
+          ui.number(inspection.people_affected) + "</strong></div>" +
+        '<div class="money-line"><span>Officer damage estimate</span><strong>' +
+          ui.money(inspection.estimated_damage_value) + "</strong></div>" +
+        (inspection.remarks ? '<p class="small mt-2"><strong>Remarks:</strong> ' +
+          ui.esc(inspection.remarks) + "</p>" : "") +
+
+        /* ---- 7. Verified photos ---- */
+        (inspection.photos && inspection.photos.length
+          ? '<h3 class="mt-2">Verified photographs</h3><div class="evidence">' +
+            inspection.photos.map(function (photo) {
+              return '<a href="' + ui.esc(photo.image_url) + '" target="_blank" rel="noopener">' +
+                     '<img src="' + ui.esc(photo.image_url) + '" alt="Inspection photograph"></a>';
+            }).join("") + "</div>"
+          : "") +
+      "</div>";
+    } else {
+      html += '<div class="card"><h2>Verified inspection</h2>' +
+        '<div class="alert alert-warning" style="margin:0">This case has not been inspected yet. ' +
+        "It cannot be approved until an officer has inspected the property and signed off.</div></div>";
+    }
+
+    /* ---- 8. Compensation ---- */
+    if (claim) {
+      html += '<div class="card"><h2>Compensation breakdown</h2>' +
+        claim.lines.map(function (line) {
+          return '<div class="money-line"><span>' + ui.esc(line.label) +
+            '<br><span class="small muted">' + ui.esc(line.explanation) + "</span></span>" +
+            "<strong>" + ui.money(line.amount) + "</strong></div>";
+        }).join("") +
+        '<div class="money-total"><span>Calculated total</span><span>' +
+          ui.money(claim.calculated_amount) + "</span></div>" +
+        (claim.was_adjusted
+          ? '<div class="alert alert-warning mt-2"><strong>Adjusted to ' + ui.money(claim.approved_amount) +
+            "</strong>" + ui.esc(claim.adjustment_reason) + "</div>" : "") +
+      "</div>";
+    }
+
+    /* ---- 9. Audit history ---- */
+    html += '<div class="card"><h2>Audit history</h2><ul class="timeline">' +
+      timeline.map(function (event) {
+        return "<li><div class='t-title'>" + ui.esc(event.action_display) + "</div>" +
+          "<div class='t-meta'>" + ui.date(event.timestamp, true) + " · " +
+            ui.esc(event.performed_by || "System") +
+            (event.previous_state && event.new_state
+              ? " · " + ui.esc(event.previous_state) + " → " + ui.esc(event.new_state) : "") +
+          "</div>" +
+          (event.metadata && event.metadata.reason
+            ? "<p class='small' style='margin:.3rem 0 0'>" + ui.esc(event.metadata.reason) + "</p>" : "") +
+        "</li>";
+      }).join("") + "</ul></div>";
+
+    html += "</div>";                    // end left column
+    html += "<div>" + decisionPanel() + "</div>";
+    html += "</div>";                    // end grid
+
+    document.getElementById("case").innerHTML = html;
+    wireDecisions();
+    drawMap();
+    loadTriageBreakdown();
+  }
+
+  function drawMap() {
+    var lat = parseFloat(report.latitude), lng = parseFloat(report.longitude);
+    if (isNaN(lat) || isNaN(lng) || !window.L) return;
+    var map = L.map("case-map").setView([lat, lng], 15);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors", maxZoom: 19,
+    }).addTo(map);
+    L.marker([lat, lng]).addTo(map).bindPopup(ui.esc(report.reference));
+  }
+
+  function loadTriageBreakdown() {
+    api.get("/api/triage/results/?page_size=200").then(function (page) {
+      var result = (page.results || []).filter(function (r) { return r.report === report.id; })[0];
+      var node = document.getElementById("triage-breakdown");
+      if (!result) { node.textContent = "No triage result recorded."; return; }
+      node.innerHTML = result.breakdown.map(function (item) {
+        return '<div class="breakdown-item"><span>' + ui.esc(item.label) +
+               "</span><strong>+" + item.points + "</strong></div>";
+      }).join("") +
+      '<div class="breakdown-item" style="border-top:1px solid var(--border);margin-top:.3rem;padding-top:.4rem">' +
+        "<span><strong>Total</strong></span><strong>" + result.score + "</strong></div>" +
+      '<p class="small muted" style="margin:.5rem 0 0">Target response: ' +
+        result.response_target_hours + " hours</p>";
+    }).catch(function () {
+      document.getElementById("triage-breakdown").textContent = "Score breakdown unavailable.";
+    });
+  }
+
+  function act(promise, button, successMessage) {
+    ui.setBusy(button, true, "Working…");
+    ui.clear("#alert");
+    promise
+      .then(function () {
+        ui.flash("#alert", "success", successMessage);
+        setTimeout(function () { window.location.reload(); }, 1200);
+      })
+      .catch(function (error) {
+        ui.setBusy(button, false);
+        ui.flash("#alert", "error", error.message);
+      });
+  }
+
+  function wireDecisions() {
+    var approve = document.getElementById("approve");
+    if (approve) {
+      approve.addEventListener("click", function () {
+        var reason = document.getElementById("reason").value.trim();
+        var adjusted = document.getElementById("adjusted").value;
+        if (reason.length < 10) {
+          ui.flash("#alert", "error", "Give a substantive reason (at least 10 characters).");
+          return;
+        }
+        act(api.approvals.approve(report.id, reason, adjusted), approve, "Case approved. Payout opened.");
+      });
+    }
+
+    var reject = document.getElementById("reject");
+    if (reject) {
+      reject.addEventListener("click", function () {
+        var reason = document.getElementById("reason").value.trim();
+        if (reason.length < 10) {
+          ui.flash("#alert", "error", "A written reason is required to reject a case.");
+          return;
+        }
+        if (!confirm("Reject this case? The citizen will see your reason.")) return;
+        act(api.approvals.reject(report.id, reason), reject, "Case rejected.");
+      });
+    }
+
+    var review = document.getElementById("review");
+    if (review) {
+      review.addEventListener("click", function () {
+        var reason = document.getElementById("reason").value.trim();
+        if (reason.length < 10) {
+          ui.flash("#alert", "error", "Explain what the officer needs to re-check.");
+          return;
+        }
+        act(api.approvals.review(report.id, reason), review, "Re-inspection requested.");
+      });
+    }
+
+    var initiate = document.getElementById("initiate");
+    if (initiate) {
+      initiate.addEventListener("click", function () {
+        act(api.approvals.initiatePayout(report.id, document.getElementById("method").value),
+            initiate, "Payout initiated (simulated).");
+      });
+    }
+
+    var complete = document.getElementById("complete");
+    if (complete) {
+      complete.addEventListener("click", function () {
+        act(api.approvals.completePayout(report.id), complete, "Payout completed. Case closed.");
+      });
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    ui.loading("#case", "Loading case file…");
+
+    api.reports.list({ search: reference, page_size: 5 }).then(function (page) {
+      var match = (page.results || []).filter(function (r) { return r.reference === reference; })[0];
+      if (!match) { ui.empty("#case", "Case not found", "No case with this reference exists."); return; }
+
+      return Promise.all([
+        api.reports.detail(match.id),
+        api.reports.timeline(match.id),
+        api.get("/api/dispatch/assignments/?page_size=50").catch(function () { return { results: [] }; }),
+        api.get("/api/inspections/?page_size=200").catch(function () { return { results: [] }; }),
+        api.compensation.claims({ page_size: 200 }).catch(function () { return { results: [] }; }),
+        api.approvals.payouts({ page_size: 200 }).catch(function () { return { results: [] }; }),
+      ]).then(function (results) {
+        report = results[0];
+        var timeline = results[1];
+        var assignments = (results[2].results || []).filter(function (a) { return a.report === report.id; });
+        inspection = (results[3].results || []).filter(function (i) { return i.report === report.id; })[0] || null;
+        payout = (results[5].results || []).filter(function (p) { return p.report === report.id; })[0] || null;
+
+        var claimRow = (results[4].results || []).filter(function (c) { return c.report === report.id; })[0];
+        var claimPromise = claimRow
+          ? api.compensation.breakdown(claimRow.id).catch(function () { return null; })
+          : Promise.resolve(null);
+
+        return claimPromise.then(function (breakdown) {
+          claim = breakdown;
+          render(timeline, assignments);
+        });
+      });
+    }).catch(function (error) { ui.errorBox("#case", error.message); });
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Privacy — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container-narrow">
+    <div class="page-head">
+      <h1>Privacy notice</h1>
+      <p>What ResQNet stores about you, why, and who can see it.</p>
+    </div>
+
+    <div class="card stack">
+      <div class="alert alert-info">
+        This is an academic project. This notice describes how the software behaves;
+        it is not a legal document and does not create obligations on any authority.
+      </div>
+
+      <h2>What is collected</h2>
+      <ul>
+        <li><strong>Account details</strong> — name, username, email, phone number, address and district.</li>
+        <li><strong>Damage reports</strong> — description, disaster and damage type, damage indicators, coordinates and address.</li>
+        <li><strong>Photographs</strong> — images you upload, plus any GPS metadata already embedded in them by your camera.</li>
+        <li><strong>Activity history</strong> — the actions taken on your case, who took them, and when.</li>
+      </ul>
+
+      <h2>Why it is collected</h2>
+      <p>
+        Location and damage details determine how urgently your case is handled and which
+        officer is sent. Photographs are evidence for verification. Contact details allow an
+        officer to reach you. The activity history exists so that relief decisions can be
+        audited — including by you.
+      </p>
+
+      <h2>Who can see it</h2>
+      <ul>
+        <li><strong>You</strong> — your own reports, inspections, compensation and case history.</li>
+        <li><strong>The assigned field officer</strong> — the cases assigned to them, and nothing else. Officers cannot browse other officers' cases.</li>
+        <li><strong>Administrators</strong> — all cases, because reviewing and approving relief is their function.</li>
+      </ul>
+      <p>
+        These boundaries are enforced by the server on every request. A citizen requesting
+        another citizen's report receives nothing, regardless of what the interface shows.
+      </p>
+
+      <h2>Public statistics</h2>
+      <p>
+        The home page shows aggregate counts only — totals, resolution rate, officers
+        deployed. It contains no names, no coordinates, and no case references.
+      </p>
+
+      <h2>Data stored on your device</h2>
+      <p>
+        When you fill in a report or inspection without a connection, it is stored in your
+        browser's local database (IndexedDB) until it can be sent. It is removed from your
+        device once the server confirms receipt. Clearing your browser data will delete
+        anything not yet sent.
+      </p>
+
+      <h2>Retention</h2>
+      <p>
+        Cases and their audit history are retained for the life of the deployment. Audit
+        records are append-only: they are never edited or deleted through the application.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

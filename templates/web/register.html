@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Create an account — ResQNet{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container-narrow" style="max-width:560px">
+    <div class="page-head center">
+      <h1>Create your account</h1>
+      <p>Register as a citizen to report damage and track your relief.</p>
+    </div>
+
+    <div class="card">
+      <div id="form-alert"></div>
+
+      <form id="register-form" novalidate>
+        <div class="grid grid-2" style="gap:0 1rem">
+          <div class="field">
+            <label for="first_name">First name</label>
+            <input type="text" id="first_name" name="first_name" autocomplete="given-name" required>
+          </div>
+          <div class="field">
+            <label for="last_name">Last name</label>
+            <input type="text" id="last_name" name="last_name" autocomplete="family-name">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" autocomplete="username" required>
+        </div>
+
+        <div class="field">
+          <label for="email">Email address</label>
+          <input type="email" id="email" name="email" autocomplete="email" required>
+        </div>
+
+        <div class="grid grid-2" style="gap:0 1rem">
+          <div class="field">
+            <label for="phone_number">Phone number</label>
+            <input type="tel" id="phone_number" name="phone_number" autocomplete="tel" placeholder="+919000000000">
+            <p class="hint">So an officer can reach you about your case.</p>
+          </div>
+          <div class="field">
+            <label for="district">District</label>
+            <input type="text" id="district" name="district" autocomplete="address-level2">
+            <p class="hint">Used to match your report to nearby officers.</p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="address">Address</label>
+          <textarea id="address" name="address" rows="2" autocomplete="street-address"></textarea>
+        </div>
+
+        <div class="grid grid-2" style="gap:0 1rem">
+          <div class="field">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" autocomplete="new-password" required>
+            <p class="hint">At least 8 characters, not entirely numeric.</p>
+          </div>
+          <div class="field">
+            <label for="password_confirm">Confirm password</label>
+            <input type="password" id="password_confirm" name="password_confirm" autocomplete="new-password" required>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block btn-lg" id="submit">Create account</button>
+      </form>
+
+      <p class="center small muted mt-2" style="margin-bottom:0">
+        Already registered? <a href="{% url 'web:login' %}">Log in</a>
+      </p>
+    </div>
+
+    <p class="center small muted mt-2">
+      By registering you agree to the <a href="{% url 'web:terms' %}">Terms</a> and
+      <a href="{% url 'web:privacy' %}">Privacy notice</a>.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById("register-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var form = event.target;
+    var button = document.getElementById("submit");
+    ui.clear("#form-alert");
+    ui.setBusy(button, true, "Creating account…");
+
+    api.auth.register(ui.formData(form))
+      .then(function () { window.location.href = "{% url 'web:citizen_dashboard' %}"; })
+      .catch(function (error) {
+        ui.setBusy(button, false);
+        ui.flash("#form-alert", "error", error.message);
+        ui.showFieldErrors(form, error.fields);
+      });
+  });
+</script>
+{% endblock %}

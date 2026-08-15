@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+{% load static %}
+
+{#
+  Phase 9 - the public landing page (Section 5).
+
+  This is explicitly NOT a dashboard. It is reachable without authentication and
+  its job is to explain what ResQNet is, how the relief process works, and where
+  each kind of user should go. The statistics come from the public analytics
+  endpoint, which returns aggregate counts only - never a name or a coordinate.
+#}
+
+{% block title %}ResQNet — Report. Respond. Recover.{% endblock %}
+
+{% block head %}
+<style>
+  .hero {
+    background:
+      radial-gradient(900px 420px at 82% -8%, rgba(220,38,38,.28), transparent 65%),
+      linear-gradient(160deg, var(--navy-900) 0%, var(--navy-800) 55%, #16233b 100%);
+    color: #fff; padding: clamp(3.5rem, 9vw, 6.5rem) 0 clamp(3rem, 7vw, 5rem);
+    position: relative; overflow: hidden;
+  }
+  .hero::after {
+    content: ""; position: absolute; inset: 0; opacity: .35; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(720px 340px at 25% 40%, #000, transparent 80%);
+  }
+  .hero .container { position: relative; z-index: 1; }
+  .hero-grid { display: grid; gap: 3rem; grid-template-columns: 1.15fr .85fr; align-items: center; }
+  @media (max-width: 940px) { .hero-grid { grid-template-columns: 1fr; } }
+
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: .5rem;
+    background: rgba(220,38,38,.18); border: 1px solid rgba(248,113,113,.35);
+    color: #fecaca; padding: .35rem .85rem; border-radius: 999px;
+    font-size: .8rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    margin-bottom: 1.25rem;
+  }
+  .hero h1 { color: #fff; margin-bottom: .75rem; }
+  .hero .tagline {
+    font-size: clamp(1.15rem, 2.1vw, 1.4rem); font-weight: 600;
+    color: var(--red-500); margin-bottom: 1rem; letter-spacing: -.01em;
+  }
+  .hero .lede { font-size: 1.08rem; color: var(--slate-300); max-width: 56ch; margin-bottom: 2rem; }
+  .hero-actions { display: flex; gap: .8rem; flex-wrap: wrap; }
+
+  .flow-card {
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+    border-radius: var(--radius-lg); padding: 1.75rem; backdrop-filter: blur(8px);
+  }
+  .flow-step { display: flex; align-items: flex-start; gap: 1rem; padding: .7rem 0; }
+  .flow-num {
+    width: 34px; height: 34px; flex: none; border-radius: 9px;
+    background: rgba(220,38,38,.22); border: 1px solid rgba(248,113,113,.4);
+    color: #fecaca; display: grid; place-items: center; font-weight: 800; font-size: .9rem;
+  }
+  .flow-step h3 { color: #fff; font-size: 1rem; margin: 0 0 .15rem; }
+  .flow-step p { color: var(--slate-400); font-size: .9rem; margin: 0; }
+  .flow-line { height: 18px; width: 2px; background: rgba(255,255,255,.15); margin-left: 17px; }
+
+  .stat-strip { background: var(--navy-800); padding: 2rem 0; border-top: 1px solid rgba(255,255,255,.08); }
+  .stat-strip .grid { gap: 1rem; }
+  .stat-strip .tile { text-align: center; padding: 1rem .75rem; }
+  .stat-strip .tile .value {
+    font-size: clamp(1.6rem, 3.4vw, 2.2rem); font-weight: 800; color: #fff;
+    line-height: 1.1; font-variant-numeric: tabular-nums;
+  }
+  .stat-strip .tile .label {
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--slate-400); font-weight: 700; margin-top: .3rem;
+  }
+  .demo-note {
+    text-align: center; color: var(--slate-400); font-size: .84rem; margin-top: 1.25rem;
+  }
+
+  section.band { padding: clamp(3rem, 6vw, 4.5rem) 0; }
+  section.band.alt { background: #fff; border-block: 1px solid var(--border); }
+  .band-head { max-width: 62ch; margin-bottom: 2.5rem; }
+  .band-head p { color: var(--text-soft); font-size: 1.05rem; }
+
+  .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; }
+  @media (max-width: 860px) { .pipeline { grid-template-columns: 1fr; } }
+  .pipeline .node {
+    background: var(--surface); border: 1px solid var(--border); border-top: 4px solid var(--red-600);
+    border-radius: var(--radius-lg); padding: 1.35rem 1.15rem; position: relative;
+  }
+  .pipeline .node:nth-child(2) { border-top-color: var(--sev-high); }
+  .pipeline .node:nth-child(3) { border-top-color: var(--sev-medium); }
+  .pipeline .node:nth-child(4) { border-top-color: var(--blue-600); }
+  .pipeline .node:nth-child(5) { border-top-color: var(--green-600); }
+  .pipeline .node .step {
+    font-size: .72rem; font-weight: 800; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-soft); margin-bottom: .4rem;
+  }
+  .pipeline .node h3 { font-size: 1.05rem; margin-bottom: .3rem; }
+  .pipeline .node p { font-size: .9rem; color: var(--text-soft); margin: 0; }
+
+  .feature { display: flex; gap: 1rem; align-items: flex-start; }
+  .feature .icon {
+    width: 42px; height: 42px; flex: none; border-radius: 11px;
+    background: var(--red-50); color: var(--red-600);
+    display: grid; place-items: center; font-size: 1.2rem; border: 1px solid #fecaca;
+  }
+  .feature h3 { font-size: 1.02rem; margin-bottom: .25rem; }
+  .feature p { font-size: .92rem; color: var(--text-soft); margin: 0; }
+
+  .portal-card {
+    display: flex; flex-direction: column; height: 100%;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: var(--shadow-sm);
+    transition: box-shadow .18s, transform .18s;
+  }
+  .portal-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-3px); }
+  .portal-card .tag {
+    display: inline-block; font-size: .74rem; font-weight: 800; letter-spacing: .08em;
+    text-transform: uppercase; padding: .25rem .6rem; border-radius: 6px; margin-bottom: .9rem;
+  }
+  .portal-card.citizen .tag { background: var(--red-50); color: var(--red-700); }
+  .portal-card.officer .tag { background: var(--blue-50); color: var(--blue-700); }
+  .portal-card.admin   .tag { background: var(--teal-50); color: var(--teal-700); }
+  .portal-card ul { margin: 0 0 1.5rem; padding-left: 1.1rem; color: var(--text-soft); font-size: .92rem; }
+  .portal-card ul li { margin-bottom: .35rem; }
+  .portal-card .btn { margin-top: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- ------------------------------------------------------------ Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow">Disaster Response &amp; Relief Management</span>
+        <h1>Get relief to the people who need it most, first.</h1>
+        <p class="tagline">Report. Respond. Recover.</p>
+        <p class="lede">
+          When a disaster hits, the hardest problem is not collecting reports — it is
+          knowing which ones cannot wait. ResQNet takes a citizen's damage report,
+          scores its urgency against published rules, dispatches the nearest available
+          field officer, and tracks the case through verification, compensation and
+          payout — with every step recorded.
+        </p>
+        <div class="hero-actions">
+          <a class="btn btn-lg btn-primary" href="{% url 'web:citizen_report_form' %}">Report damage</a>
+          <a class="btn btn-lg btn-on-dark" href="{% url 'web:login' %}">Log in</a>
+          <a class="btn btn-lg btn-on-dark" href="{% url 'web:register' %}">Create an account</a>
+        </div>
+        <p class="small" style="color:var(--slate-400); margin-top:1.25rem">
+          Works on a weak connection. Reports save on your phone and send themselves
+          when the network returns.
+        </p>
+      </div>
+
+      <div class="flow-card">
+        <h3 style="color:#fff; font-size:.85rem; letter-spacing:.08em; text-transform:uppercase; color:var(--slate-400)">
+          What happens to your report
+        </h3>
+        <div class="flow-step">
+          <span class="flow-num">1</span>
+          <div><h3>You describe the damage</h3><p>Photos, location and a short checklist.</p></div>
+        </div>
+        <div class="flow-line"></div>
+        <div class="flow-step">
+          <span class="flow-num">2</span>
+          <div><h3>Urgency is scored</h3><p>Published rules, not a black box.</p></div>
+        </div>
+        <div class="flow-line"></div>
+        <div class="flow-step">
+          <span class="flow-num">3</span>
+          <div><h3>An officer is dispatched</h3><p>Nearest available, by zone and workload.</p></div>
+        </div>
+        <div class="flow-line"></div>
+        <div class="flow-step">
+          <span class="flow-num">4</span>
+          <div><h3>Relief is calculated</h3><p>Itemised, from verified findings.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------ Statistics -->
+<section class="stat-strip" aria-labelledby="stats-heading">
+  <div class="container">
+    <h2 id="stats-heading" class="visually-hidden">Platform statistics</h2>
+    <div class="grid grid-4" id="public-stats">
+      <div class="tile"><div class="value">{{ stats.total_reports }}</div><div class="label">Total reports</div></div>
+      <div class="tile"><div class="value">{{ stats.critical_cases }}</div><div class="label">Critical cases</div></div>
+      <div class="tile"><div class="value">{{ stats.cases_resolved }}</div><div class="label">Cases resolved</div></div>
+      <div class="tile"><div class="value">{{ stats.officers_deployed }}</div><div class="label">Officers deployed</div></div>
+    </div>
+    <p class="demo-note" id="stats-note">
+      {% if stats.is_demo_data %}
+        No cases have been filed yet — these figures will populate as the platform is used.
+      {% else %}
+        Live figures from this deployment. Relief approved to date:
+        <strong style="color:#fff">₹{{ stats.relief_approved_total|floatformat:0 }}</strong>
+        · Resolution rate: <strong style="color:#fff">{{ stats.resolution_rate }}%</strong>
+      {% endif %}
+    </p>
+  </div>
+</section>
+
+<!-- --------------------------------------------------- How it works -->
+<section class="band" id="how">
+  <div class="container">
+    <div class="band-head">
+      <h2>How ResQNet works</h2>
+      <p>
+        Five stages, and a case can only ever move forward through them in order.
+        An administrator cannot approve relief for a property nobody has inspected,
+        and a payout cannot complete before it has been approved.
+      </p>
+    </div>
+
+    <div class="pipeline">
+      <div class="node">
+        <div class="step">Stage 1</div>
+        <h3>Report</h3>
+        <p>A citizen submits damage details, photos and a location — online or offline.</p>
+      </div>
+      <div class="node">
+        <div class="step">Stage 2</div>
+        <h3>Prioritise</h3>
+        <p>A rule-based engine scores the report and classifies it Low to Critical.</p>
+      </div>
+      <div class="node">
+        <div class="step">Stage 3</div>
+        <h3>Verify</h3>
+        <p>The dispatched officer inspects the property and signs off on the findings.</p>
+      </div>
+      <div class="node">
+        <div class="step">Stage 4</div>
+        <h3>Approve</h3>
+        <p>An administrator reviews the evidence and the itemised relief calculation.</p>
+      </div>
+      <div class="node">
+        <div class="step">Stage 5</div>
+        <h3>Relief</h3>
+        <p>The approved payout is tracked to completion and the citizen is kept informed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------- Features -->
+<section class="band alt" id="features">
+  <div class="container">
+    <div class="band-head">
+      <h2>Built for the conditions relief work actually happens in</h2>
+      <p>Bad networks, stressed users, and decisions that have to be defensible months later.</p>
+    </div>
+
+    <div class="grid grid-3">
+      <div class="feature">
+        <span class="icon" aria-hidden="true">⛅</span>
+        <div><h3>Offline reporting</h3><p>Reports are saved on the device and sent automatically when the connection returns — without ever creating a duplicate.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">◎</span>
+        <div><h3>GPS-based reporting</h3><p>Location from browser GPS, manual entry, or photo metadata — validated server-side, never blindly trusted.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">⚖</span>
+        <div><h3>Smart triage</h3><p>Urgency is a sum of published rules. Every score can be broken down line by line.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">➤</span>
+        <div><h3>Automatic officer assignment</h3><p>Matched on availability, zone, straight-line distance and current workload — with the reasoning recorded.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">✔</span>
+        <div><h3>Field verification</h3><p>Relief follows what a trained officer confirmed on site, not what was claimed.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">₹</span>
+        <div><h3>Compensation calculation</h3><p>A configurable relief matrix produces an itemised, reproducible breakdown.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">◷</span>
+        <div><h3>Relief tracking</h3><p>Citizens follow their case from submission through inspection, approval and payout.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">🗎</span>
+        <div><h3>Audit transparency</h3><p>Every significant action is appended to a permanent history the citizen can read.</p></div>
+      </div>
+      <div class="feature">
+        <span class="icon" aria-hidden="true">◱</span>
+        <div><h3>Low-bandwidth friendly</h3><p>Photos are compressed in the browser before upload, and pages stay light.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- --------------------------------------------------- User access -->
+<section class="band" id="access">
+  <div class="container">
+    <div class="band-head">
+      <h2>Choose your portal</h2>
+      <p>Each role sees only what it needs, and the backend enforces that regardless of what the interface shows.</p>
+    </div>
+
+    <div class="grid grid-3">
+      <div class="portal-card citizen">
+        <span class="tag">Citizen</span>
+        <h3>Report damage and track relief</h3>
+        <ul>
+          <li>Report damage with photos and location</li>
+          <li>Save reports offline and sync later</li>
+          <li>Track inspection progress</li>
+          <li>See your compensation breakdown</li>
+          <li>Follow payout status</li>
+        </ul>
+        <a class="btn btn-primary btn-block" href="{% url 'web:citizen_dashboard' %}">Citizen portal</a>
+      </div>
+
+      <div class="portal-card officer">
+        <span class="tag">Field Officer</span>
+        <h3>Work assigned cases in the field</h3>
+        <ul>
+          <li>See today's assignments by priority</li>
+          <li>Map and route to each property</li>
+          <li>Cache cases before entering the zone</li>
+          <li>Complete inspections offline</li>
+          <li>Capture verified photographs and sign off</li>
+        </ul>
+        <a class="btn btn-secondary btn-block" href="{% url 'web:officer_dashboard' %}">Officer portal</a>
+      </div>
+
+      <div class="portal-card admin">
+        <span class="tag">Administrator</span>
+        <h3>Monitor, review and approve</h3>
+        <ul>
+          <li>Command centre with live statistics</li>
+          <li>Critical case queue and damage heatmap</li>
+          <li>Officer monitoring and workload</li>
+          <li>Review evidence and compensation</li>
+          <li>Approve, reject and track payouts</li>
+        </ul>
+        <a class="btn btn-outline btn-block" href="{% url 'web:admin_dashboard' %}">Admin portal</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ------------------------------------------------------------ CTA -->
+<section class="band alt">
+  <div class="container-narrow center">
+    <h2>Damage to report?</h2>
+    <p class="muted" style="font-size:1.05rem">
+      It takes about two minutes. If you have no signal, fill it in anyway —
+      your phone will hold it and send it the moment you are back online.
+    </p>
+    <div class="row" style="justify-content:center; margin-top:1.5rem">
+      <a class="btn btn-lg btn-primary" href="{% url 'web:citizen_report_form' %}">Report damage now</a>
+      <a class="btn btn-lg btn-outline" href="{% url 'web:about' %}">Learn more</a>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Refresh the headline numbers from the public endpoint so a cached page never
+  // shows stale figures. Server-rendered values are the fallback.
+  document.addEventListener("DOMContentLoaded", function () {
+    api.analytics.publicStats().then(function (stats) {
+      var tiles = [
+        ["total_reports", "Total reports"],
+        ["critical_cases", "Critical cases"],
+        ["cases_resolved", "Cases resolved"],
+        ["officers_deployed", "Officers deployed"],
+      ];
+      document.getElementById("public-stats").innerHTML = tiles.map(function (pair) {
+        return '<div class="tile"><div class="value">' + ui.number(stats[pair[0]]) +
+               '</div><div class="label">' + pair[1] + "</div></div>";
+      }).join("");
+
+      var note = document.getElementById("stats-note");
+      if (stats.is_demo_data) {
+        note.textContent = "No cases have been filed yet — these figures will populate as the platform is used.";
+      } else {
+        note.innerHTML = 'Live figures from this deployment. Relief approved to date: ' +
+          '<strong style="color:#fff">' + ui.money(stats.relief_approved_total) + '</strong>' +
+          ' · Resolution rate: <strong style="color:#fff">' + stats.resolution_rate + '%</strong>';
+      }
+    }).catch(function () {
+      // Offline, or the API is unreachable: keep the server-rendered numbers.
+    });
+  });
+</script>
+{% endblock %}

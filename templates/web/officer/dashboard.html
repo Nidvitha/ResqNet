@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{#
+  The officer's daily queue (Phase 11).
+
+  The "Download for offline" button is the most important control on this page.
+  Section 13's officer flow assumes the officer caches everything *before*
+  entering the disaster zone, because once inside there will be no network to
+  fetch a missing address or phone number from.
+#}
+
+{% block title %}My assignments — ResQNet{% endblock %}
+
+{% block head %}
+<style>
+  .assignment {
+    background: #fff; border: 1px solid var(--border); border-left: 5px solid var(--slate-300);
+    border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1rem;
+  }
+  .assignment.sev-CRITICAL { border-left-color: var(--sev-critical); }
+  .assignment.sev-HIGH     { border-left-color: var(--sev-high); }
+  .assignment.sev-MEDIUM   { border-left-color: var(--sev-medium); }
+  .assignment.sev-LOW      { border-left-color: var(--sev-low); }
+  .assignment .head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .6rem; }
+  .assignment .meta { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: .87rem; color: var(--text-soft); margin: .6rem 0 1rem; }
+  .assignment .actions { display: flex; gap: .6rem; flex-wrap: wrap; }
+  .overdue { color: var(--red-700); font-weight: 700; }
+  .indicator-chips { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+  .chip { font-size: .78rem; padding: .2rem .55rem; border-radius: 6px; background: var(--red-50); color: var(--red-700); font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="container">
+    <div class="page-head">
+      <h1>My assignments</h1>
+      <p>Worked in priority order — critical cases first, then by deadline.</p>
+    </div>
+
+    <div class="card card-tight mb-2">
+      <div class="row" style="justify-content:space-between">
+        <div class="row">
+          <label class="row small" style="gap:.5rem">
+            <input type="checkbox" id="availability" style="width:20px;height:20px">
+            <span>I am available for new assignments</span>
+          </label>
+          <span class="sync-pill" data-sync-pill hidden>
+            <span data-sync-count>0</span> waiting to sync
+          </span>
+        </div>
+        <div class="row">
+          <select id="sort" style="max-width:190px">
+            <option value="priority">Sort: priority</option>
+            <option value="distance">Sort: distance</option>
+            <option value="due">Sort: deadline</option>
+          </select>
+          <a class="btn btn-outline btn-sm" href="{% url 'web:officer_map' %}">Map view</a>
+          <button class="btn btn-secondary btn-sm" id="cache-button">Download for offline</button>
+        </div>
+      </div>
+      <p class="small muted" style="margin:.75rem 0 0" id="cache-status"></p>
+    </div>
+
+    <div id="alert"></div>
+    <div class="grid grid-4 mb-3" id="summary"></div>
+    <div id="assignments"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  var assignments = [];
+
+  function statTile(label, value, modifier) {
+    return '<div class="stat ' + (modifier || "") + '">' +
+      '<div class="stat-label">' + label + "</div>" +
+      '<div class="stat-value">' + value + "</div></div>";
+  }
+
+  function indicatorChips(report) {
+    if (!report) return "";
+    var flags = [
+      [report.people_trapped, "People trapped"],
+      [report.medical_assistance_needed, "Medical help needed"],
+      [report.exposed_live_wires, "Live wires"],
+      [report.roof_collapsed, "Roof collapsed"],
+      [report.major_structural_damage, "Structural damage"],
+      [report.standing_water, "Standing water"],
+      [report.road_blocked, "Road blocked"],
+    ].filter(function (pair) { return pair[0]; });
+    if (!flags.length) return "";
+    return '<div class="indicator-chips">' +
+      flags.map(function (pair) { return '<span class="chip">' + pair[1] + "</span>"; }).join("") +
+      "</div>";
+  }
+
+  function render() {
+    var container = document.getElementById("assignments");
+    if (!assignments.length) {
+      ui.empty(container, "No open assignments",
+               "New cases will appear here as soon as they are dispatched to you.");
+      return;
+    }
+
+    var sortBy = document.getElementById("sort").value;
+    var sorted = assignments.slice().sort(function (a, b) {
+      if (sortBy === "distance") return (a.distance_km || 999) - (b.distance_km || 999);
+      if (sortBy === "due") return new Date(a.due_by || 0) - new Date(b.due_by || 0);
+      return (b.report_detail.priority_score || 0) - (a.report_detail.priority_score || 0);
+    });
+
+    container.innerHTML = sorted.map(function (item) {
+      var report = item.report_detail;
+      return '<article class="assignment sev-' + ui.esc(report.triage_level || "") + '">' +
+        '<div class="head">' +
+          "<div>" +
+            '<span class="ref">' + ui.esc(item.report_reference) + "</span>" +
+            "<h3 style='margin:.2rem 0 0'>" + ui.esc(report.disaster_type_display) + "</h3>" +
+          "</div>" +
+          '<div class="row" style="gap:.5rem">' + ui.severityBadge(report.triage_level) +
+            ui.statusBadge(report.status, report.status_display) + "</div>" +
+        "</div>" +
+
+        '<p class="small" style="margin:0">' + ui.esc(report.address || report.district || "Location recorded") + "</p>" +
+        indicatorChips(report) +
+
+        '<div class="meta">' +
+          "<span>Score <strong>" + report.priority_score + "</strong></span>" +
+          (item.distance_km ? "<span>" + item.distance_km + " km away</span>" : "") +
+          "<span>People affected: " + ui.number(report.people_affected) + "</span>" +
+          "<span" + (item.is_overdue ? ' class="overdue"' : "") + ">Due " +
+            ui.date(item.due_by, true) + (item.is_overdue ? " — OVERDUE" : "") + "</span>" +
+        "</div>" +
+
+        '<div class="actions">' +
+          '<a class="btn btn-primary" href="/officer/inspection/' + item.id + '/">' +
+            (item.status === "IN_PROGRESS" ? "Continue inspection" : "Start inspection") + "</a>" +
+          (item.status === "ASSIGNED"
+            ? '<button class="btn btn-outline" data-accept="' + item.id + '">Accept</button>' : "") +
+          '<a class="btn btn-ghost" target="_blank" rel="noopener" ' +
+            'href="https://www.openstreetmap.org/?mlat=' + report.latitude + "&mlon=" + report.longitude +
+            '#map=17/' + report.latitude + "/" + report.longitude + '">Open in map</a>' +
+        "</div>" +
+      "</article>";
+    }).join("");
+
+    container.querySelectorAll("[data-accept]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        ui.setBusy(button, true, "Accepting…");
+        api.dispatch.accept(button.dataset.accept)
+          .then(load)
+          .catch(function (error) { ui.setBusy(button, false); ui.flash("#alert", "error", error.message); });
+      });
+    });
+  }
+
+  function summarise() {
+    var critical = assignments.filter(function (a) { return a.report_detail.triage_level === "CRITICAL"; }).length;
+    var overdue = assignments.filter(function (a) { return a.is_overdue; }).length;
+    var inProgress = assignments.filter(function (a) { return a.status === "IN_PROGRESS"; }).length;
+
+    document.getElementById("summary").innerHTML =
+      statTile("Open cases", ui.number(assignments.length), "is-info") +
+      statTile("Critical", ui.number(critical), critical ? "is-critical" : "") +
+      statTile("In progress", ui.number(inProgress), "is-warning") +
+      statTile("Overdue", ui.number(overdue), overdue ? "is-critical" : "is-good");
+  }
+
+  function load() {
+    ui.loading("#assignments", "Loading your assignments…");
+    return api.dispatch.myAssignments().then(function (data) {
+      assignments = data || [];
+      offline.cache.put("officer.assignments", assignments);
+      summarise();
+      render();
+    }).catch(function (error) {
+      // Offline: work from the cached package downloaded before entering the zone.
+      offline.cache.get("officer.assignments").then(function (cached) {
+        if (cached && cached.data) {
+          assignments = cached.data;
+          summarise();
+          render();
+          ui.flash("#alert", "warning",
+            "You are offline. Showing assignments cached on " + ui.date(cached.savedAt, true) +
+            ". Inspections you complete now will be saved and sent when you reconnect.");
+        } else {
+          ui.errorBox("#assignments", error.message + " No cached assignments are available on this device.");
+        }
+      });
+    });
+  }
+
+  /* --------------------------------------------------- Offline caching */
+  document.getElementById("cache-button").addEventListener("click", function () {
+    var button = this;
+    ui.setBusy(button, true, "Downloading…");
+
+    api.dispatch.offlinePackage().then(function (pkg) {
+      return offline.cache.put("officer.package", pkg).then(function () {
+        ui.setBusy(button, false);
+        document.getElementById("cache-status").textContent =
+          pkg.case_count + " case(s) downloaded to this device at " + ui.date(pkg.generated_at, true) +
+          ". You can now work without a network connection.";
+      });
+    }).catch(function (error) {
+      ui.setBusy(button, false);
+      ui.flash("#alert", "error", "Could not download: " + error.message);
+    });
+  });
+
+  /* ------------------------------------------------------ Availability */
+  var availabilityToggle = document.getElementById("availability");
+  availabilityToggle.addEventListener("change", function () {
+    api.officers.availability({ is_available: availabilityToggle.checked })
+      .then(function () {
+        ui.flash("#alert", "success", availabilityToggle.checked
+          ? "You are now marked available for new assignments."
+          : "You will not receive new automatic assignments.");
+      })
+      .catch(function (error) {
+        availabilityToggle.checked = !availabilityToggle.checked;
+        ui.flash("#alert", "error", error.message);
+      });
+  });
+
+  document.getElementById("sort").addEventListener("change", render);
+
+  document.addEventListener("DOMContentLoaded", function () {
+    api.get("/api/auth/me/availability/")
+      .then(function (profile) { availabilityToggle.checked = profile.is_available; })
+      .catch(function () { availabilityToggle.disabled = true; });
+
+    offline.cache.get("officer.package").then(function (cached) {
+      if (cached && cached.data) {
+        document.getElementById("cache-status").textContent =
+          cached.data.case_count + " case(s) available offline, downloaded " +
+          ui.date(cached.savedAt, true) + ".";
+      }
+    });
+
+    load();
+  });
+})();
+</script>
+{% endblock %}
