@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 
-from .models import TriageResult, TriageRule, TriageThreshold
+from .models import CriticalInfrastructureSite, TriageResult, TriageRule, TriageThreshold
 
 
 @admin.register(TriageRule)
@@ -29,3 +29,16 @@ class TriageResultAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(CriticalInfrastructureSite)
+class CriticalInfrastructureSiteAdmin(admin.ModelAdmin):
+    list_display = [
+        "name",
+        "infrastructure_type",
+        "district",
+        "impact_weight",
+        "is_active",
+    ]
+    list_filter = ["infrastructure_type", "district", "is_active"]
+    search_fields = ["name", "district", "notes"]

@@ -13,8 +13,13 @@ from rest_framework.response import Response
 from accounts.permissions import IsAdminRole
 from reports.models import DisasterReport
 
-from .models import TriageResult, TriageRule, TriageThreshold
-from .serializers import TriageResultSerializer, TriageRuleSerializer, TriageThresholdSerializer
+from .models import CriticalInfrastructureSite, TriageResult, TriageRule, TriageThreshold
+from .serializers import (
+    CriticalInfrastructureSiteSerializer,
+    TriageResultSerializer,
+    TriageRuleSerializer,
+    TriageThresholdSerializer,
+)
 from .services import preview_score, run_triage
 
 
@@ -53,6 +58,13 @@ class TriageResultViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_field_officer:
             return queryset.filter(report__assignments__officer=user).distinct()
         return queryset.filter(report__citizen=user)
+
+
+class CriticalInfrastructureSiteViewSet(viewsets.ModelViewSet):
+    queryset = CriticalInfrastructureSite.objects.all()
+    serializer_class = CriticalInfrastructureSiteSerializer
+    permission_classes = [IsAdminRole]
+    pagination_class = None
 
 
 @api_view(["POST"])

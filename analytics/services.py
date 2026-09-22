@@ -27,6 +27,7 @@ from dispatch.models import Assignment, AssignmentStatus
 from inspections.models import Inspection, InspectionStatus
 from reports.models import DisasterReport
 from reports.states import CaseStatus, TERMINAL_STATES
+from satellite.models import DetectionType, SatelliteAnalysis, SatelliteDetection
 
 
 def overview() -> dict:
@@ -305,7 +306,74 @@ def full_dashboard() -> dict:
         "compensation": compensation_metrics(),
         "payouts": payout_metrics(),
         "trend": daily_trend(),
+        "satellite": satellite_overview(),
+        "zones": zone_intelligence(),
     }
+
+
+def satellite_overview() -> dict:
+    analyses = SatelliteAnalysis.objects.all()
+    detections = SatelliteDetection.objects.all()
+    return {
+        "total_analyses": analyses.count(),
+        "completed_analyses": analyses.filter(status="COMPLETED").count(),
+        "failed_analyses": analyses.filter(status="FAILED").count(),
+        "flood_detections": detections.filter(detection_type=DetectionType.FLOOD).count(),
+        "building_detections": detections.filter(detection_type=DetectionType.BUILDING_DAMAGE).count(),
+        "road_detections": detections.filter(detection_type=DetectionType.ROAD_DISRUPTION).count(),
+        "average_detection_confidence": str(
+            (detections.aggregate(a=Avg("confidence"))["a"] or Decimal("0")).quantize(Decimal("0.01"))
+        ),
+    }
+
+
+def zone_intelligence() -> list[dict]:
+    districts = (
+        DisasterReport.objects.exclude(status=CaseStatus.DRAFT)
+        .exclude(district="")
+        .values_list("district", flat=True)
+        .distinct()
+    )
+
+    rows = []
+    for district in districts:
+        reports_qs = DisasterReport.objects.filter(district=district).exclude(status=CaseStatus.DRAFT)
+        report_ids = list(reports_qs.values_list("id", flat=True))
+
+        analyses_qs = SatelliteAnalysis.objects.filter(report_id__in=report_ids, status="COMPLETED")
+        detections_qs = SatelliteDetection.objects.filter(analysis__in=analyses_qs)
+
+        rows.append(
+            {
+                "zone": district,
+                "citizen_reports": len(report_ids),
+                "critical_cases": reports_qs.filter(triage_level="CRITICAL").count(),
+                "field_inspections": Inspection.objects.filter(report_id__in=report_ids).count(),
+                "verified_damage": Inspection.objects.filter(
+                    report_id__in=report_ids,
+                    status=InspectionStatus.SIGNED,
+                ).count(),
+                "satellite_analyses": analyses_qs.count(),
+                "satellite_damaged_structures": detections_qs.filter(
+                    detection_type=DetectionType.BUILDING_DAMAGE
+                ).count(),
+                "satellite_flood_detections": detections_qs.filter(
+                    detection_type=DetectionType.FLOOD
+                ).count(),
+                "satellite_road_detections": detections_qs.filter(
+                    detection_type=DetectionType.ROAD_DISRUPTION
+                ).count(),
+                "estimated_compensation": str(
+                    CompensationClaim.objects.filter(report_id__in=report_ids).aggregate(
+                        total=Sum("approved_amount")
+                    )["total"]
+                    or Decimal("0")
+                ),
+            }
+        )
+
+    rows.sort(key=lambda item: item["critical_cases"], reverse=True)
+    return rows
 
 
 def public_statistics() -> dict:

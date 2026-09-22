@@ -128,3 +128,55 @@ class TriageResult(models.Model):
             return "No severity indicators were reported."
         parts = [f"{item['label']} +{item['points']}" for item in self.breakdown]
         return " | ".join(parts) + f" = {self.score} ({self.level})"
+
+
+class CriticalInfrastructureType(models.TextChoices):
+    HOSPITAL = "HOSPITAL", "Hospital"
+    SHELTER = "SHELTER", "Relief shelter"
+    POWER = "POWER", "Power infrastructure"
+    WATER = "WATER", "Water infrastructure"
+    BRIDGE = "BRIDGE", "Bridge / arterial road"
+    COMMAND = "COMMAND", "Command facility"
+
+
+class CriticalInfrastructureSite(models.Model):
+    """Infrastructure points used by triage to estimate cascading risk."""
+
+    name = models.CharField(max_length=150)
+    infrastructure_type = models.CharField(max_length=20, choices=CriticalInfrastructureType.choices)
+    district = models.CharField(max_length=100, db_index=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, db_index=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, db_index=True)
+    impact_weight = models.PositiveSmallIntegerField(
+        default=10,
+        help_text="Risk contribution if this site is affected (1-15).",
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    notes = models.CharField(max_length=250, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["district", "name"]
+        indexes = [
+            models.Index(fields=["district", "is_active"]),
+            models.Index(fields=["infrastructure_type", "is_active"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(latitude__gte=-90) & models.Q(latitude__lte=90),
+                name="infra_latitude_within_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(longitude__gte=-180) & models.Q(longitude__lte=180),
+                name="infra_longitude_within_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(impact_weight__gte=1) & models.Q(impact_weight__lte=15),
+                name="infra_impact_weight_range",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.district})"

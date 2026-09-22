@@ -14,11 +14,12 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from config.testing import make_admin, make_citizen, make_officer, make_report
+from config.testing import make_admin, make_citizen, make_officer, make_report, make_signed_case
 from reports.models import TriageLevel
 from reports.states import CaseStatus
+from satellite.models import DamageAssessment, SatelliteAnalysis, SatelliteDetection
 
-from .models import TriageResult, TriageRule, TriageThreshold
+from .models import CriticalInfrastructureSite, TriageResult, TriageRule, TriageThreshold
 from .services import calculate_score, classify, ensure_default_configuration, preview_score, run_triage
 
 
@@ -158,6 +159,49 @@ class TriageEngineTests(TestCase):
         self.assertEqual(preview["level"], TriageLevel.HIGH)
         self.assertEqual(TriageResult.objects.count(), before)
 
+    def test_multisource_evidence_adds_explainable_breakdown_lines(self):
+        report = make_report(self.citizen, submit=False)
+
+        analysis = SatelliteAnalysis.objects.create(
+            report=report,
+            zone_label="Kollam-Z1",
+            pre_disaster_image="reports/pre.png",
+            post_disaster_image="reports/post.png",
+            status="COMPLETED",
+        )
+        SatelliteDetection.objects.create(
+            analysis=analysis,
+            detection_type="FLOOD",
+            severity="HIGH",
+            confidence=90,
+        )
+        DamageAssessment.objects.create(report=report, photo_ai_score=80)
+        CriticalInfrastructureSite.objects.create(
+            name="District Hospital",
+            infrastructure_type="HOSPITAL",
+            district="Kollam",
+            latitude=report.latitude,
+            longitude=report.longitude,
+            impact_weight=15,
+        )
+
+        result = run_triage(report)
+        sources = {item.get("source") for item in result.breakdown}
+        self.assertIn("SATELLITE", sources)
+        self.assertIn("AI_PHOTO", sources)
+        self.assertIn("INFRASTRUCTURE", sources)
+
+    def test_field_verified_cases_include_authoritative_line_item(self):
+        report, _, _ = make_signed_case(citizen=self.citizen, officer=self.officer)
+        run_triage(report)
+        report.refresh_from_db()
+
+        authoritative = [
+            item for item in report.triage_result.breakdown
+            if item.get("indicator") == "field_verification" and item.get("authoritative")
+        ]
+        self.assertTrue(authoritative)
+
 
 class TriageAPITests(APITestCase):
     def setUp(self):
@@ -196,3 +240,38 @@ class TriageAPITests(APITestCase):
         self.client.force_authenticate(self.admin)
         response = self.client.post(reverse("triage:result-list"), {"score": 999}, format="json")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_only_admin_can_manage_infrastructure_sites(self):
+        url = reverse("triage:infrastructure-list")
+
+        self.client.force_authenticate(self.citizen)
+        denied = self.client.post(
+            url,
+            {
+                "name": "Main Hospital",
+                "infrastructure_type": "HOSPITAL",
+                "district": "Kollam",
+                "latitude": "8.8932",
+                "longitude": "76.6141",
+                "impact_weight": 15,
+                "is_active": True,
+            },
+            format="json",
+        )
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.admin)
+        allowed = self.client.post(
+            url,
+            {
+                "name": "Main Hospital",
+                "infrastructure_type": "HOSPITAL",
+                "district": "Kollam",
+                "latitude": "8.8932",
+                "longitude": "76.6141",
+                "impact_weight": 15,
+                "is_active": True,
+            },
+            format="json",
+        )
+        self.assertEqual(allowed.status_code, status.HTTP_201_CREATED)

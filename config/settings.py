@@ -71,6 +71,7 @@ LOCAL_APPS = [
     "approvals",      # admin approve / reject / payout tracking
     "audit",          # append-only audit trail
     "analytics",      # aggregated read-only statistics
+    "satellite",      # multi-source and satellite intelligence
     "web",            # server-rendered public site + role portals
 ]
 
@@ -165,6 +166,37 @@ MAX_IMAGE_DIMENSION = 6000  # pixels on the longest side
 # Reject oversized uploads before they are fully buffered into memory.
 DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_BYTES
 FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_BYTES
+
+# ---------------------------------------------------------------------------
+# Firebase authentication
+# ---------------------------------------------------------------------------
+# The web values below are NOT secrets - they ship in every Firebase web app and
+# identify the project. Security comes from this server verifying ID tokens, not
+# from hiding them.
+FIREBASE_API_KEY = env("FIREBASE_API_KEY", default="")
+FIREBASE_AUTH_DOMAIN = env("FIREBASE_AUTH_DOMAIN", default="")
+FIREBASE_PROJECT_ID = env("FIREBASE_PROJECT_ID", default="")
+FIREBASE_APP_ID = env("FIREBASE_APP_ID", default="")
+FIREBASE_STORAGE_BUCKET = env("FIREBASE_STORAGE_BUCKET", default="")
+FIREBASE_MESSAGING_SENDER_ID = env("FIREBASE_MESSAGING_SENDER_ID", default="")
+
+# The service account IS a secret. Supply a path to the JSON file, or the JSON
+# itself for hosts that only provide environment variables. Never commit either.
+FIREBASE_CREDENTIALS_FILE = env("FIREBASE_CREDENTIALS_FILE", default="")
+FIREBASE_CREDENTIALS_JSON = env("FIREBASE_CREDENTIALS_JSON", default="")
+
+# Providers accepted for each role. Google sign-in is for citizens only: officer
+# and administrator accounts are issued by an administrator and must not be
+# reachable through whatever personal Google account shares the address.
+FIREBASE_CITIZEN_PROVIDERS = ["password", "google.com"]
+FIREBASE_STAFF_PROVIDERS = ["password"]
+
+# ---------------------------------------------------------------------------
+# Satellite intelligence
+# ---------------------------------------------------------------------------
+# "demo" is deterministic and local-only. Swap to a real inference adapter via
+# services.py when production infrastructure is available.
+SATELLITE_INFERENCE_BACKEND = env("SATELLITE_INFERENCE_BACKEND", default="demo")
 
 # ---------------------------------------------------------------------------
 # Django REST Framework

@@ -10,6 +10,7 @@ described in Section 31.
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 from django.urls import include, path
 
 from .health import health_check
@@ -29,12 +30,16 @@ urlpatterns = [
     path("api/approvals/", include("approvals.urls")),
     path("api/analytics/", include("analytics.urls")),
     path("api/audit/", include("audit.urls")),
-
-    # --- Server-rendered site (public home page + role portals) ------------
-    path("", include("web.urls")),
+    path("api/satellite/", include("satellite.urls")),
 ]
 
-# During development Django serves uploaded media itself. In production this is
-# handled by the web server instead - never by Django.
+# During development Django serves uploaded media and static assets itself. In
+# production this is handled by the web server instead - never by Django.
 if settings.DEBUG:
+    urlpatterns += staticfiles_urlpatterns()
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# --- Server-rendered site (public home page + role portals) ------------
+urlpatterns += [
+    path("", include("web.urls")),
+]

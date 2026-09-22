@@ -41,6 +41,7 @@
             <option value="CRITICAL">Critical only</option>
             <option value="HIGH">High and above</option>
           </select>
+          <label class="small"><input type="checkbox" id="toggle-satellite" checked> Satellite detections</label>
           <span class="small muted" id="point-count"></span>
         </div>
       </div>
@@ -66,6 +67,7 @@
   var COLOURS = { CRITICAL: "#dc2626", HIGH: "#ea580c", MEDIUM: "#ca8a04", LOW: "#0891b2" };
   var allPoints = [];
   var layer = null;
+  var satelliteLayer = null;
 
   var map = L.map("map").setView([20.5937, 78.9629], 5);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -105,6 +107,47 @@
     if (bounds.length) map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
   }
 
+  function colourForSatellite(item) {
+    var severity = item.properties && item.properties.severity;
+    return COLOURS[severity] || "#6b7280";
+  }
+
+  function renderSatellite(geojson) {
+    if (satelliteLayer) map.removeLayer(satelliteLayer);
+    satelliteLayer = L.geoJSON(geojson, {
+      pointToLayer: function (feature, latlng) {
+        return L.circleMarker(latlng, {
+          radius: 6,
+          color: colourForSatellite(feature),
+          fillColor: colourForSatellite(feature),
+          fillOpacity: 0.8,
+          weight: 1,
+        });
+      },
+      style: function (feature) {
+        return {
+          color: colourForSatellite(feature),
+          weight: 2,
+          fillOpacity: 0.22,
+        };
+      },
+      onEachFeature: function (feature, shape) {
+        var p = feature.properties || {};
+        shape.bindPopup(
+          "<strong>Satellite detection</strong><br>" +
+          ui.esc((p.detection_type || "").replace(/_/g, " ")) + " · " +
+          ui.esc(p.severity || "") +
+          "<br>Confidence: " + ui.esc(String(p.confidence || "0")) + "%" +
+          (p.report_reference ? "<br><a href='/command/cases/" + encodeURIComponent(p.report_reference) + "/'>Open case</a>" : "")
+        );
+      },
+    });
+
+    if (document.getElementById("toggle-satellite").checked) {
+      satelliteLayer.addTo(map);
+    }
+  }
+
   function renderDistricts(rows) {
     var container = document.getElementById("districts");
     if (!rows.length) {
@@ -128,6 +171,11 @@
   }
 
   document.getElementById("filter-level").addEventListener("change", plot);
+  document.getElementById("toggle-satellite").addEventListener("change", function (event) {
+    if (!satelliteLayer) return;
+    if (event.target.checked) satelliteLayer.addTo(map);
+    else map.removeLayer(satelliteLayer);
+  });
 
   document.addEventListener("DOMContentLoaded", function () {
     api.analytics.heatmap(2000).then(function (points) {
@@ -144,6 +192,12 @@
       .catch(function () {
         document.getElementById("districts").innerHTML =
           '<p class="muted small" style="margin:0">District data unavailable.</p>';
+      });
+
+    api.satellite.detectionsGeoJson()
+      .then(renderSatellite)
+      .catch(function () {
+        // Satellite overlays are optional and must never break the map.
       });
   });
 })();

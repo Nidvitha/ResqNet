@@ -1,10 +1,31 @@
 {% extends "base.html" %}
+{% load static %}
+
+{#
+  Citizen registration.
+
+  Self-registration is for citizens only, and always has been: an open endpoint
+  that could grant the officer role would hand inspection and approval powers to
+  anyone. Firebase changes who holds the password, not who decides the role —
+  the server assigns CITIZEN to every new identity regardless of what is sent.
+#}
 
 {% block title %}Create an account — ResQNet{% endblock %}
 
+{% block head %}
+<style>
+  .auth-wrap { max-width: 520px; margin-inline: auto; }
+  .divider { display: flex; align-items: center; gap: .85rem; margin: 1.25rem 0; color: var(--text-soft); font-size: .85rem; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .btn-google { background: #fff; color: #1f1f1f; border: 1px solid var(--slate-300); font-weight: 600; }
+  .btn-google:hover:not(:disabled) { background: var(--slate-50); }
+  .btn-google svg { width: 18px; height: 18px; flex: none; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page">
-  <div class="container-narrow" style="max-width:560px">
+  <div class="container-narrow auth-wrap">
     <div class="page-head center">
       <h1>Create your account</h1>
       <p>Register as a citizen to report damage and track your relief.</p>
@@ -12,6 +33,18 @@
 
     <div class="card">
       <div id="form-alert"></div>
+
+      <button type="button" class="btn btn-google btn-block btn-lg" id="google">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+
+      <div class="divider">or register with email</div>
 
       <form id="register-form" novalidate>
         <div class="grid grid-2" style="gap:0 1rem">
@@ -26,38 +59,15 @@
         </div>
 
         <div class="field">
-          <label for="username">Username</label>
-          <input type="text" id="username" name="username" autocomplete="username" required>
-        </div>
-
-        <div class="field">
           <label for="email">Email address</label>
           <input type="email" id="email" name="email" autocomplete="email" required>
         </div>
 
         <div class="grid grid-2" style="gap:0 1rem">
           <div class="field">
-            <label for="phone_number">Phone number</label>
-            <input type="tel" id="phone_number" name="phone_number" autocomplete="tel" placeholder="+919000000000">
-            <p class="hint">So an officer can reach you about your case.</p>
-          </div>
-          <div class="field">
-            <label for="district">District</label>
-            <input type="text" id="district" name="district" autocomplete="address-level2">
-            <p class="hint">Used to match your report to nearby officers.</p>
-          </div>
-        </div>
-
-        <div class="field">
-          <label for="address">Address</label>
-          <textarea id="address" name="address" rows="2" autocomplete="street-address"></textarea>
-        </div>
-
-        <div class="grid grid-2" style="gap:0 1rem">
-          <div class="field">
             <label for="password">Password</label>
             <input type="password" id="password" name="password" autocomplete="new-password" required>
-            <p class="hint">At least 8 characters, not entirely numeric.</p>
+            <p class="hint">At least 8 characters.</p>
           </div>
           <div class="field">
             <label for="password_confirm">Confirm password</label>
@@ -69,34 +79,89 @@
       </form>
 
       <p class="center small muted mt-2" style="margin-bottom:0">
-        Already registered? <a href="{% url 'web:login' %}">Log in</a>
+        Already registered? <a href="{% url 'web:login' %}">Sign in</a>
       </p>
     </div>
 
     <p class="center small muted mt-2">
-      By registering you agree to the <a href="{% url 'web:terms' %}">Terms</a> and
-      <a href="{% url 'web:privacy' %}">Privacy notice</a>.
+      You can add your phone number and address from your profile once you are signed in —
+      they help an officer reach you about your case.
     </p>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'js/firebase-auth.js' %}"></script>
 <script>
+(function () {
+  "use strict";
+
+  function go() { window.location.href = "{% url 'web:citizen_dashboard' %}"; }
+
+  firebaseAuth.init().then(function () {
+    if (!firebaseAuth.isConfigured()) {
+      ui.flash("#form-alert", "warning",
+        "Registration is unavailable because Firebase is not configured on this server yet.");
+      document.getElementById("submit").disabled = true;
+      document.getElementById("google").disabled = true;
+      return;
+    }
+
+    if (firebaseAuth.googleEnabled() === false) {
+      var button = document.getElementById("google");
+      button.disabled = true;
+      button.insertAdjacentHTML("afterend",
+        '<p class="hint center" style="margin-top:.5rem">' +
+          "Google sign-up is not enabled in this Firebase project yet — " +
+          "register with an email address below." +
+        "</p>");
+    }
+  });
+
   document.getElementById("register-form").addEventListener("submit", function (event) {
     event.preventDefault();
-    var form = event.target;
     var button = document.getElementById("submit");
+    var email = document.getElementById("email").value.trim();
+    var password = document.getElementById("password").value;
+    var confirm = document.getElementById("password_confirm").value;
+    var name = (document.getElementById("first_name").value.trim() + " " +
+                document.getElementById("last_name").value.trim()).trim();
+
+    if (password !== confirm) {
+      ui.flash("#form-alert", "error", "The two passwords do not match.");
+      return;
+    }
+    if (password.length < 8) {
+      ui.flash("#form-alert", "error", "Choose a password of at least 8 characters.");
+      return;
+    }
+
     ui.clear("#form-alert");
     ui.setBusy(button, true, "Creating account…");
 
-    api.auth.register(ui.formData(form))
-      .then(function () { window.location.href = "{% url 'web:citizen_dashboard' %}"; })
+    firebaseAuth.registerWithPassword(email, password, name)
+      .then(go)
       .catch(function (error) {
         ui.setBusy(button, false);
-        ui.flash("#form-alert", "error", error.message);
-        ui.showFieldErrors(form, error.fields);
+        ui.flash("#form-alert", "error", error.message || String(error));
       });
   });
+
+  document.getElementById("google").addEventListener("click", function () {
+    var button = this;
+    ui.clear("#form-alert");
+    ui.setBusy(button, true, "Opening Google…");
+
+    // Google sign-in both registers and signs in: an address we have not seen
+    // becomes a new citizen account server-side.
+    firebaseAuth.signInWithGoogle()
+      .then(go)
+      .catch(function (error) {
+        ui.setBusy(button, false);
+        ui.flash("#form-alert", "error", error.message || String(error));
+      });
+  });
+})();
 </script>
 {% endblock %}

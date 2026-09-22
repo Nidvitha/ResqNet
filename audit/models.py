@@ -58,6 +58,10 @@ class AuditAction(models.TextChoices):
 
     OFFLINE_SYNC = "OFFLINE_SYNC", "Offline data synchronised"
 
+    SATELLITE_ANALYSIS_REQUESTED = "SATELLITE_REQ", "Satellite analysis requested"
+    SATELLITE_ANALYSIS_COMPLETED = "SATELLITE_DONE", "Satellite analysis completed"
+    DAMAGE_ASSESSMENT_UPDATED = "DAMAGE_ASSESS", "Damage assessment updated"
+
 
 class AuditEventQuerySet(models.QuerySet):
     """Block bulk rewrites at the queryset level, not just on single rows."""

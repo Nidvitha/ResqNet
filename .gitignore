@@ -7,6 +7,11 @@
 *.pem
 *.key
 
+# Firebase service account credentials — a private key. Never commit.
+secrets/
+*service-account*.json
+firebase-adminsdk*.json
+
 # Python
 __pycache__/
 *.py[cod]
@@ -17,6 +22,10 @@ venv/
 # Django
 db.sqlite3
 db.sqlite3-journal
+# Clones created by `manage.py test --parallel`; normally removed on exit, but
+# left behind if the run is interrupted.
+default_*.sqlite3
+test_*.sqlite3
 /media/
 /staticfiles/
 *.log

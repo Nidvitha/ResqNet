@@ -172,6 +172,36 @@
 
     html += "</div>";
 
+    html += '<div class="section-title">Multi-source intelligence</div>';
+    html += '<div class="grid grid-2">';
+
+    html += '<div class="card"><h2>Satellite intelligence</h2>' +
+      '<dl class="kv small" style="display:grid;grid-template-columns:1fr auto;gap:.5rem">' +
+        "<dt>Analyses</dt><dd class='num'><strong>" + ui.number(data.satellite.total_analyses || 0) + "</strong></dd>" +
+        "<dt>Completed</dt><dd class='num'><strong>" + ui.number(data.satellite.completed_analyses || 0) + "</strong></dd>" +
+        "<dt>Failed</dt><dd class='num'><strong>" + ui.number(data.satellite.failed_analyses || 0) + "</strong></dd>" +
+        "<dt>Flood detections</dt><dd class='num'><strong>" + ui.number(data.satellite.flood_detections || 0) + "</strong></dd>" +
+        "<dt>Damaged structures</dt><dd class='num'><strong>" + ui.number(data.satellite.building_detections || 0) + "</strong></dd>" +
+        "<dt>Affected roads</dt><dd class='num'><strong>" + ui.number(data.satellite.road_detections || 0) + "</strong></dd>" +
+      "</dl>" +
+      '<p class="small muted mt-2" style="margin-bottom:0">AI detections are recommendations. Field verification and admin approval remain authoritative.</p>' +
+    "</div>";
+
+    html += '<div class="card"><h2>Zone intelligence</h2>' +
+      ((data.zones || []).length
+        ? '<div class="table-wrap"><table><thead><tr><th>Zone</th><th class="num">Reports</th><th class="num">Critical</th><th class="num">Verified</th><th class="num">Est. compensation</th></tr></thead><tbody>' +
+          data.zones.slice(0, 8).map(function (zone) {
+            return "<tr><td><strong>" + ui.esc(zone.zone) + "</strong></td>" +
+              '<td class="num">' + ui.number(zone.citizen_reports) + "</td>" +
+              '<td class="num">' + ui.number(zone.critical_cases) + "</td>" +
+              '<td class="num">' + ui.number(zone.verified_damage) + "</td>" +
+              '<td class="num">' + ui.money(zone.estimated_compensation || 0) + "</td></tr>";
+          }).join("") + "</tbody></table></div>"
+        : '<p class="muted small">No zone intelligence data yet.</p>') +
+    "</div>";
+
+    html += "</div>";
+
     /* ---- 5. Officers ---- */
     html += '<div class="section-title">Officer monitoring</div>';
     html += '<div class="card"><div class="card-header"><h2>Workload</h2>' +

@@ -71,6 +71,27 @@ class User(AbstractUser):
         db_index=True,
         help_text="Administrative district. Used to match reports to nearby officers.",
     )
+    # --- Firebase identity -------------------------------------------------
+    # Firebase owns the credential (password or Google account); ResQNet owns the
+    # role. The uid is stored so an account survives the user changing their
+    # email address at the provider, which would otherwise orphan their case
+    # history. Null rather than blank-string, so the unique constraint permits
+    # many accounts that have never used Firebase.
+    firebase_uid = models.CharField(
+        max_length=128,
+        unique=True,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Firebase user id, set on first Firebase sign-in.",
+    )
+    auth_provider = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="How this account last signed in: password, google.com, or django.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

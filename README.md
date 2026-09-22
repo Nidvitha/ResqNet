@@ -76,7 +76,13 @@ testable in isolation and reusable from anywhere.
 | `web` | Server-rendered public site and the three role portals |
 
 **Stack:** Django 5.2 · Django REST Framework · PostgreSQL (SQLite in dev) ·
-IndexedDB · Leaflet.js
+Firebase Authentication · IndexedDB · Leaflet.js
+
+Firebase is used for **authentication only**. All platform data — reports,
+inspections, compensation, payouts, the audit trail — lives in the Django
+database, which is what makes atomic state transitions, the unique constraint
+that stops duplicate offline submissions, and `Decimal` money arithmetic
+possible.
 
 No microservices, no Celery, no Redis, no ML. Each piece of infrastructure that
 is present is there because a requirement demanded it.
@@ -125,6 +131,46 @@ and returns the original case instead of creating a duplicate — which in a rel
 platform would mean duplicate inspections and duplicate payments.
 
 ---
+
+## Authentication
+
+Firebase holds the credential; ResQNet decides the role. That separation is the
+whole security argument, because anyone can create a Firebase account in seconds
+— a verified token proves *who you are*, never *what you may do*.
+
+| Role | Sign-in |
+|---|---|
+| Citizen | Firebase email/password **or Google** |
+| Field officer | Firebase email/password only |
+| Administrator | ResQNet username/password (bootstrap path) |
+
+**Google is restricted to citizens**, enforced server-side against the token's
+`sign_in_provider` claim on every request. Hiding the button on the officer tab
+is convenience, not security.
+
+An email an administrator already provisioned signs in **as that account**, with
+whatever role it was given. Any email ResQNet has never seen becomes a
+**citizen** — there is no code path that assigns another role from a token.
+
+Officers cannot self-register. Creating one at `/command/officers/` also creates
+their Firebase account and returns a single-use link for them to set their own
+password, so the administrator never knows it.
+
+### Firebase setup
+
+1. Firebase console → Authentication → **Sign-in method** → enable
+   **Email/Password** and **Google**
+2. Authentication → Settings → **Authorized domains** → add your domain
+   (`localhost` for development)
+3. Project settings → General → Web app → copy the config into `.env`
+4. Project settings → **Service accounts** → Generate new private key → save to
+   `secrets/firebase-service-account.json`
+
+The web config values are not secrets — they ship in every Firebase web app. The
+service account **is** a private key: `secrets/` is gitignored, keep it that way.
+
+Without Firebase configured the platform still runs; the login page reports
+exactly which half is missing and administrators can still sign in.
 
 ## Getting started
 

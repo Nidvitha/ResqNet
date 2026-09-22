@@ -98,3 +98,15 @@ def trend(request):
     except (TypeError, ValueError):
         days = 30
     return Response(services.daily_trend(days=days))
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminRole])
+def satellite(request):
+    return Response(services.satellite_overview())
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminRole])
+def zones(request):
+    return Response(services.zone_intelligence())

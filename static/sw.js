@@ -1,28 +1,40 @@
 /*
  * ResQNet service worker.
  *
- * A service worker is a script the browser runs *between* the page and the
- * network. It can answer requests from a local cache when the network is gone,
- * which is what lets an officer open the inspection screen inside a disaster
- * zone with no signal.
+ * A service worker sits between the page and the network and can answer from a
+ * local cache when the network is gone — which is what lets an officer open the
+ * inspection screen inside a disaster zone with no signal.
  *
- * The caching strategy is deliberately split by request type, because getting
- * this wrong in a relief platform is dangerous:
+ * ---------------------------------------------------------------------------
+ * A bug worth remembering (fixed in v2)
+ * ---------------------------------------------------------------------------
+ * v1 used a cache-first strategy for navigations. Requesting `/citizen/` while
+ * logged out returns a 302 to `/login/`; `fetch()` followed it and produced a
+ * response with `redirected = true`. Returning that from `respondWith()` for a
+ * navigation is illegal — Chrome fails the page with "a redirected response was
+ * used for a request whose redirect mode is not 'follow'" — and because it was
+ * also written to the cache, every later visit failed the same way. The portals
+ * were unreachable until the cache was cleared.
  *
- *   * **App shell** (CSS, JS, key pages)  - cache first. These rarely change and
- *     must be instantly available offline.
- *   * **API GET requests**                - network first, falling back to the
- *     cache. Stale case data is better than nothing, but fresh data always wins.
- *     An officer must never act on a cached status when the real one is available.
- *   * **API writes (POST/PATCH)**         - never cached, never intercepted. The
- *     IndexedDB queue in offline.js owns those, because only it can attach an
- *     idempotency key and guarantee a replay does not create a duplicate case.
+ * Two rules prevent it recurring, and both are enforced below:
+ *
+ *   1. Navigations are **network-first**, and a redirected response is passed
+ *      straight back to the browser, never cached.
+ *   2. Authenticated pages are **never** precached or stored. What one user sees
+ *      must not be served to the next.
  */
 
-const VERSION = "resqnet-v1";
+const VERSION = "resqnet-v2";
 const SHELL_CACHE = VERSION + "-shell";
 const DATA_CACHE = VERSION + "-data";
 
+/*
+ * Only genuinely public, non-redirecting assets belong here.
+ *
+ * Note what is absent: /citizen/, /officer/ and /command/. Those are behind
+ * @login_required, so precaching them caches a redirect to the login page — the
+ * exact bug described above.
+ */
 const SHELL_ASSETS = [
   "/",
   "/offline/",
@@ -31,17 +43,21 @@ const SHELL_ASSETS = [
   "/static/js/ui.js",
   "/static/js/offline.js",
   "/static/manifest.json",
-  "/citizen/",
-  "/citizen/report/",
-  "/officer/",
 ];
+
+/** Paths whose HTML must never be cached — they differ per signed-in user. */
+const PRIVATE_PREFIXES = ["/citizen/", "/officer/", "/command/", "/admin/", "/login/", "/register/"];
+
+function isPrivatePath(pathname) {
+  return PRIVATE_PREFIXES.some(function (prefix) { return pathname.startsWith(prefix); });
+}
 
 /* ------------------------------------------------------------- Install */
 self.addEventListener("install", function (event) {
   event.waitUntil(
     caches.open(SHELL_CACHE).then(function (cache) {
-      // addAll fails the whole install if any single URL 404s, which would leave
-      // the user with no service worker at all. Add them individually instead.
+      // Added individually: addAll() fails the entire install if any single URL
+      // misses, which would leave the user with no service worker at all.
       return Promise.all(
         SHELL_ASSETS.map(function (url) {
           return cache.add(url).catch(function () { return null; });
@@ -55,6 +71,8 @@ self.addEventListener("install", function (event) {
 self.addEventListener("activate", function (event) {
   event.waitUntil(
     caches.keys().then(function (keys) {
+      // Deletes every cache from a previous VERSION, which is what evicts the
+      // poisoned v1 entries from browsers that already installed it.
       return Promise.all(
         keys.filter(function (key) { return key.indexOf(VERSION) !== 0; })
             .map(function (key) { return caches.delete(key); })
@@ -66,35 +84,76 @@ self.addEventListener("activate", function (event) {
 /* --------------------------------------------------------------- Fetch */
 self.addEventListener("fetch", function (event) {
   const request = event.request;
-  const url = new URL(request.url);
 
-  // Only handle same-origin traffic. Map tiles and anything else cross-origin
-  // go straight to the network.
-  if (url.origin !== self.location.origin) return;
-
-  // Writes are the offline queue's responsibility, not the cache's.
+  // Only same-origin GETs. Map tiles and other cross-origin traffic go direct,
+  // and writes belong to the IndexedDB queue in offline.js, not to the cache.
   if (request.method !== "GET") return;
 
-  // Never cache the admin site or authentication endpoints - serving a stale
-  // authenticated response to the wrong person is a real risk.
+  let url;
+  try { url = new URL(request.url); } catch (e) { return; }
+  if (url.origin !== self.location.origin) return;
+
+  // The Django admin and the auth endpoints are never intercepted: serving a
+  // stale authenticated response to the wrong person is a real risk.
   if (url.pathname.startsWith("/admin/") || url.pathname.startsWith("/api/auth/")) return;
 
+  if (request.mode === "navigate") {
+    event.respondWith(handleNavigation(request, url));
+    return;
+  }
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(networkFirst(request));
-  } else {
-    event.respondWith(cacheFirstWithRefresh(request));
+    return;
   }
+  event.respondWith(staticCacheFirst(request));
 });
 
 /**
- * Fresh data preferred; cached copy used only when the network fails.
+ * Navigations: always try the network, and hand redirects straight back.
+ *
+ * Returning `response` untouched is essential. A 302 must reach the browser as a
+ * 302 so it can follow it itself; anything else reintroduces the v1 failure.
+ */
+async function handleNavigation(request, url) {
+  try {
+    const response = await fetch(request);
+
+    // Cache only public, non-redirected, successful HTML. Anything redirected
+    // or private is returned but never stored.
+    if (response && response.ok && !response.redirected && !isPrivatePath(url.pathname)) {
+      const cache = await caches.open(SHELL_CACHE);
+      cache.put(request, response.clone()).catch(function () { /* not cacheable */ });
+    }
+    return response;
+  } catch (error) {
+    // Genuinely offline. Serve the cached page if we have a safe one, otherwise
+    // the offline notice — which explains that queued work is not lost.
+    if (!isPrivatePath(url.pathname)) {
+      const cached = await caches.match(request);
+      if (cached && !cached.redirected) return cached;
+    }
+    const offlinePage = await caches.match("/offline/");
+    if (offlinePage) return offlinePage;
+
+    return new Response(
+      "<h1>You are offline</h1><p>Reconnect and try again. Anything you saved is still on this device.</p>",
+      { status: 503, headers: { "Content-Type": "text/html" } }
+    );
+  }
+}
+
+/**
+ * API GETs: fresh data preferred, cached copy only when the network fails.
+ *
+ * An officer must never act on stale case data while the real thing is
+ * reachable, so the network always wins when it answers.
  */
 async function networkFirst(request) {
   try {
     const response = await fetch(request);
-    if (response && response.ok) {
+    if (response && response.ok && !response.redirected) {
       const cache = await caches.open(DATA_CACHE);
-      cache.put(request, response.clone());
+      cache.put(request, response.clone()).catch(function () {});
     }
     return response;
   } catch (error) {
@@ -107,34 +166,33 @@ async function networkFirst(request) {
   }
 }
 
-/**
- * Instant from cache, refreshed in the background for next time. Navigations
- * that miss entirely fall back to the offline page.
- */
-async function cacheFirstWithRefresh(request) {
+/** CSS/JS/images: instant from cache, refreshed in the background. */
+async function staticCacheFirst(request) {
   const cached = await caches.match(request);
+  if (cached) {
+    // Refresh for next time without blocking this response.
+    fetch(request).then(async function (response) {
+      if (response && response.ok && !response.redirected) {
+        const cache = await caches.open(SHELL_CACHE);
+        cache.put(request, response.clone()).catch(function () {});
+      }
+    }).catch(function () {});
+    return cached;
+  }
 
-  const networkFetch = fetch(request).then(async function (response) {
-    if (response && response.ok) {
+  try {
+    const response = await fetch(request);
+    if (response && response.ok && !response.redirected) {
       const cache = await caches.open(SHELL_CACHE);
-      cache.put(request, response.clone());
+      cache.put(request, response.clone()).catch(function () {});
     }
     return response;
-  }).catch(function () { return null; });
-
-  if (cached) return cached;
-
-  const fresh = await networkFetch;
-  if (fresh) return fresh;
-
-  if (request.mode === "navigate") {
-    const offlinePage = await caches.match("/offline/");
-    if (offlinePage) return offlinePage;
+  } catch (error) {
+    return new Response("", { status: 503 });
   }
-  return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
 }
 
-/* Let the page trigger an immediate activation after an update. */
+/* Let a page force an immediate takeover after an update. */
 self.addEventListener("message", function (event) {
   if (event.data === "skipWaiting") self.skipWaiting();
 });

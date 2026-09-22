@@ -106,15 +106,31 @@
   <script src="{% static 'js/api.js' %}"></script>
   <script src="{% static 'js/ui.js' %}"></script>
   <script src="{% static 'js/offline.js' %}"></script>
+  <script src="{% static 'js/firebase-auth.js' %}"></script>
   <script>
     // The service worker must be registered from the site root so its scope
     // covers every page, which is why /sw.js is served by a URL rather than
     // straight from the static folder.
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
-        navigator.serviceWorker.register("/sw.js").catch(function () {
+        navigator.serviceWorker.register("/sw.js").then(function (registration) {
+          // Force an update check on every load. A browser still running an
+          // older worker picks the new one up here rather than on some later
+          // visit — which matters when the old worker is the thing that broke.
+          registration.update();
+        }).catch(function () {
           // No service worker means no offline page caching, but the IndexedDB
           // queue still works. Not worth alarming the user about.
+        });
+
+        // When a new worker takes control, the page is still running against
+        // whatever the old one cached. Reload exactly once to pick up clean
+        // responses. The guard prevents a reload loop.
+        var hasReloaded = false;
+        navigator.serviceWorker.addEventListener("controllerchange", function () {
+          if (hasReloaded) return;
+          hasReloaded = true;
+          window.location.reload();
         });
       });
     }
@@ -123,7 +139,14 @@
       var logout = document.getElementById("logout-button");
       if (logout) {
         logout.addEventListener("click", function () {
-          api.auth.logout().then(function () { window.location.href = "{% url 'web:home' %}"; });
+          // Clear the ResQNet session first, then Firebase. Leaving the Firebase
+          // session behind would silently sign the user straight back in.
+          api.auth.logout()
+            .then(function () {
+              return window.firebaseAuth ? window.firebaseAuth.signOut() : null;
+            })
+            .catch(function () { /* logging out locally matters more */ })
+            .then(function () { window.location.href = "{% url 'web:home' %}"; });
         });
       }
       // Mark the current page in the navigation for orientation.

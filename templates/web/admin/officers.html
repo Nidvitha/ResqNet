@@ -11,6 +11,7 @@
     </div>
 
     <div id="alert"></div>
+    <div id="provisioning-note"></div>
 
     <div class="card-header">
       <h2>Roster</h2>
@@ -34,8 +35,9 @@
             <input type="email" id="email" name="email" required></div>
           <div class="field"><label for="phone_number">Phone</label>
             <input type="tel" id="phone_number" name="phone_number"></div>
-          <div class="field"><label for="password">Initial password</label>
-            <input type="password" id="password" name="password" required autocomplete="new-password"></div>
+          <div class="field"><label for="password">Initial password <span class="muted small" style="font-weight:400">(optional)</span></label>
+            <input type="password" id="password" name="password" autocomplete="new-password">
+            <p class="hint">Leave blank when Firebase is enabled — the officer sets their own password from a one-time link.</p></div>
           <div class="field"><label for="employee_id">Employee ID</label>
             <input type="text" id="employee_id" name="employee_id" required></div>
           <div class="field"><label for="zone">Operational zone</label>
@@ -147,8 +149,32 @@
       form.reset();
       document.getElementById("create-panel").hidden = true;
       document.getElementById("toggle-form").textContent = "Register officer";
-      ui.flash("#alert", "success",
-               "Officer " + (officer.first_name || officer.username) + " registered and available for dispatch.");
+
+      var name = officer.first_name || officer.username;
+      var provisioning = officer.provisioning || {};
+      var alertNode = document.querySelector("#alert");
+
+      if (provisioning.reset_link) {
+        // Rendered as selectable text rather than an anchor: this is a
+        // single-use credential link for the officer, not something the
+        // administrator should click and consume themselves.
+        alertNode.innerHTML =
+          '<div class="alert alert-success">' +
+            "<strong>Officer " + ui.esc(name) + " registered.</strong>" +
+            "A Firebase account was " + ui.esc(provisioning.firebase) + ". " +
+            ui.esc(provisioning.detail) +
+            '<p class="small" style="margin:.6rem 0 .3rem"><strong>Password setup link</strong></p>' +
+            '<textarea readonly rows="3" style="font-family:var(--mono);font-size:.8rem" ' +
+              'onclick="this.select()">' + ui.esc(provisioning.reset_link) + "</textarea>" +
+          "</div>";
+      } else if (provisioning.firebase === "failed") {
+        ui.flash("#alert", "warning",
+          "Officer " + name + " was registered in ResQNet, but the Firebase account was not created. " +
+          (provisioning.detail || ""));
+      } else {
+        ui.flash("#alert", "success",
+          "Officer " + name + " registered and available for dispatch.");
+      }
       load();
     }).catch(function (error) {
       ui.setBusy(button, false);
@@ -157,7 +183,25 @@
     });
   });
 
-  document.addEventListener("DOMContentLoaded", load);
+  document.addEventListener("DOMContentLoaded", function () {
+    load();
+
+    // Sign-in works without a service account, but creating the officer's
+    // Firebase account does not. Say so here rather than letting the admin
+    // discover it only after filling in the form.
+    api.get("/api/auth/firebase/config/").then(function (config) {
+      if (config.configured && !config.admin_sdk) {
+        document.getElementById("provisioning-note").innerHTML =
+          '<div class="alert alert-info">' +
+            "<strong>Firebase accounts are not created automatically</strong>" +
+            "Officers can sign in, but this server has no Firebase service account, so " +
+            "each officer's Firebase login must be created by hand in the Firebase console " +
+            "(Authentication → Users → Add user) using the same email address. " +
+            "Add a service account to automate it." +
+          "</div>";
+      }
+    }).catch(function () { /* the roster still works without this note */ });
+  });
 })();
 </script>
 {% endblock %}

@@ -158,9 +158,17 @@ class PasswordChangeSerializer(serializers.Serializer):
 
 
 class OfficerCreateSerializer(serializers.ModelSerializer):
-    """Administrator-only creation of a field officer plus their profile."""
+    """
+    Administrator-only creation of a field officer plus their profile.
 
-    password = serializers.CharField(write_only=True)
+    `password` is optional. Where Firebase is configured it holds the officer's
+    credential, and the officer sets it themselves through a one-time link — so
+    the administrator never knows their password. Omitting it leaves the Django
+    account with no usable password, which is correct rather than insecure: an
+    unusable password can never match any input.
+    """
+
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     profile = OfficerProfileSerializer(write_only=True)
 
     class Meta:
@@ -175,9 +183,18 @@ class OfficerCreateSerializer(serializers.ModelSerializer):
             "password",
             "profile",
         ]
+        extra_kwargs = {"email": {"required": True}}
+
+    def validate_email(self, value):
+        # The email is how a Firebase sign-in is matched to this account, so a
+        # duplicate would make the link ambiguous.
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("An account with this email already exists.")
+        return value.lower()
 
     def validate_password(self, value):
-        password_validation.validate_password(value)
+        if value:
+            password_validation.validate_password(value)
         return value
 
     @transaction.atomic
@@ -185,9 +202,14 @@ class OfficerCreateSerializer(serializers.ModelSerializer):
         # `transaction.atomic` makes the user and profile a single all-or-nothing
         # write: an officer can never exist without the profile dispatch needs.
         profile_data = validated_data.pop("profile")
-        password = validated_data.pop("password")
+        password = validated_data.pop("password", "")
+
         user = User(**validated_data, role=Role.FIELD_OFFICER)
-        user.set_password(password)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
         user.save()
+
         OfficerProfile.objects.create(officer=user, **profile_data)
         return user

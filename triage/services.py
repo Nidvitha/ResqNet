@@ -20,15 +20,19 @@ database on first run. After that, the rows in `TriageRule` are the truth.
 from __future__ import annotations
 
 import logging
+import math
 
 from django.db import transaction
+from django.db.models import Avg
 
 from audit.models import AuditAction
 from audit.services import record_event
+from inspections.models import DamageSeverity
 from reports.models import DisasterReport, TriageLevel
 from reports.states import CaseStatus
+from satellite.models import SatelliteDetection
 
-from .models import TriageResult, TriageRule, TriageThreshold
+from .models import CriticalInfrastructureSite, TriageResult, TriageRule, TriageThreshold
 
 logger = logging.getLogger("resqnet.triage")
 
@@ -52,6 +56,8 @@ DEFAULT_THRESHOLDS = [
     (TriageLevel.HIGH, 70, 99, 12, "#ea580c"),
     (TriageLevel.CRITICAL, 100, 9999, 4, "#dc2626"),
 ]
+
+EARTH_RADIUS_KM = 6371.0
 
 
 def ensure_default_configuration() -> None:
@@ -84,7 +90,160 @@ def ensure_default_configuration() -> None:
         )
 
 
-def calculate_score(indicators: dict) -> tuple[int, list[dict]]:
+def _haversine_km(lat1, lon1, lat2, lon2) -> float:
+    lat1, lon1, lat2, lon2 = (float(v) for v in (lat1, lon1, lat2, lon2))
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return EARTH_RADIUS_KM * c
+
+
+def _geo_severity_points(report: DisasterReport) -> tuple[int, dict] | None:
+    if not report.district:
+        return None
+
+    district_reports = DisasterReport.objects.filter(district__iexact=report.district).exclude(
+        status=CaseStatus.DRAFT
+    )
+    total = district_reports.count()
+    if total == 0:
+        return None
+
+    critical = district_reports.filter(triage_level=TriageLevel.CRITICAL).count()
+    high = district_reports.filter(triage_level=TriageLevel.HIGH).count()
+    pressure = (critical + high) / total
+
+    points = min(15, int(round(pressure * 15)))
+    if points <= 0:
+        return None
+
+    return points, {
+        "indicator": "district_pressure",
+        "label": f"District severity pressure ({critical} critical, {high} high in {report.district})",
+        "points": points,
+        "source": "GEOSPATIAL",
+    }
+
+
+def _infrastructure_points(report: DisasterReport) -> tuple[int, dict] | None:
+    sites = CriticalInfrastructureSite.objects.filter(is_active=True)
+    if report.district:
+        sites = sites.filter(district__iexact=report.district)
+    sites = list(sites[:200])
+    if not sites:
+        return None
+
+    nearest = None
+    nearest_distance = None
+    for site in sites:
+        distance = _haversine_km(report.latitude, report.longitude, site.latitude, site.longitude)
+        if nearest_distance is None or distance < nearest_distance:
+            nearest = site
+            nearest_distance = distance
+
+    if nearest is None or nearest_distance is None or nearest_distance > 5:
+        return None
+
+    distance_factor = max(0.2, 1 - (nearest_distance / 5))
+    points = min(15, max(1, int(round(nearest.impact_weight * distance_factor))))
+    return points, {
+        "indicator": "critical_infrastructure",
+        "label": f"Near critical infrastructure: {nearest.name} ({nearest_distance:.2f} km)",
+        "points": points,
+        "source": "INFRASTRUCTURE",
+        "metadata": {
+            "site": nearest.name,
+            "type": nearest.infrastructure_type,
+            "distance_km": round(nearest_distance, 2),
+        },
+    }
+
+
+def _satellite_points(report: DisasterReport) -> tuple[int, dict] | None:
+    if not report.satellite_analyses.exists():
+        return None
+    confidence = SatelliteDetection.objects.filter(analysis__report=report).aggregate(c=Avg("confidence"))["c"]
+    if confidence is None:
+        return None
+
+    points = min(20, int(round(float(confidence) * 0.2)))
+    if points <= 0:
+        return None
+
+    return points, {
+        "indicator": "satellite_evidence",
+        "label": f"Satellite evidence confidence {float(confidence):.1f}%",
+        "points": points,
+        "source": "SATELLITE",
+    }
+
+
+def _assessment_points(report: DisasterReport) -> tuple[int, list[dict]]:
+    additions = []
+    total = 0
+
+    photo_ai = getattr(getattr(report, "damage_assessment", None), "photo_ai_score", None)
+    if photo_ai is not None:
+        points = min(25, int(round(float(photo_ai) * 0.25)))
+        if points > 0:
+            total += points
+            additions.append(
+                {
+                    "indicator": "photo_ai",
+                    "label": f"Photo AI confidence {float(photo_ai):.1f}%",
+                    "points": points,
+                    "source": "AI_PHOTO",
+                }
+            )
+
+    satellite = _satellite_points(report)
+    if satellite is not None:
+        points, item = satellite
+        total += points
+        additions.append(item)
+
+    geo = _geo_severity_points(report)
+    if geo is not None:
+        points, item = geo
+        total += points
+        additions.append(item)
+
+    infra = _infrastructure_points(report)
+    if infra is not None:
+        points, item = infra
+        total += points
+        additions.append(item)
+
+    inspection = getattr(report, "inspection", None)
+    if inspection is not None and inspection.status == "SIGNED":
+        severe_count = sum(
+            1
+            for value in inspection.severity_map().values()
+            if value in {DamageSeverity.SEVERE, DamageSeverity.DESTROYED}
+        )
+        verification_points = min(25, 10 + severe_count * 3)
+        if inspection.requires_immediate_relief:
+            verification_points = min(25, verification_points + 3)
+        total += verification_points
+        additions.append(
+            {
+                "indicator": "field_verification",
+                "label": "Field officer verification completed",
+                "points": verification_points,
+                "source": "FIELD_VERIFIED",
+                "authoritative": True,
+            }
+        )
+
+    return total, additions
+
+
+def calculate_score(indicators: dict, *, report: DisasterReport | None = None) -> tuple[int, list[dict]]:
     """
     Pure scoring function: indicators in, `(score, breakdown)` out.
 
@@ -117,8 +276,14 @@ def calculate_score(indicators: dict) -> tuple[int, list[dict]]:
                 "indicator": rule.indicator,
                 "label": detail,
                 "points": points,
+                "source": "CITIZEN_RULE",
             }
         )
+
+    if report is not None:
+        additional_points, additional_breakdown = _assessment_points(report)
+        total += additional_points
+        breakdown.extend(additional_breakdown)
 
     return max(total, 0), breakdown
 
@@ -144,7 +309,7 @@ def run_triage(report: DisasterReport, *, user=None, request=None) -> TriageResu
     photos, or an administrator may retune the weights - so the result row is
     updated rather than duplicated, and `recalculated_at` records that it happened.
     """
-    score, breakdown = calculate_score(report.damage_indicators())
+    score, breakdown = calculate_score(report.damage_indicators(), report=report)
     threshold = classify(score)
     level = threshold.level if threshold else TriageLevel.LOW
     target_hours = threshold.response_target_hours if threshold else 72
@@ -192,6 +357,15 @@ def run_triage(report: DisasterReport, *, user=None, request=None) -> TriageResu
     )
 
     logger.info("Triage %s -> score=%s level=%s", report.reference, score, level)
+
+    # Keep the multi-source assessment in sync with the latest citizen triage.
+    try:
+        from satellite.services import refresh_damage_assessment
+
+        refresh_damage_assessment(report, user=user, request=request)
+    except Exception:  # noqa: BLE001
+        logger.exception("Damage assessment refresh failed for %s", report.reference)
+
     return result
 
 

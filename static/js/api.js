@@ -234,6 +234,20 @@
       dashboard: function () { return api.get("/api/analytics/dashboard/"); },
       heatmap: function (limit) { return api.get("/api/analytics/heatmap/?limit=" + (limit || 1000)); },
       officerWorkload: function () { return api.get("/api/analytics/officer-workload/"); },
+      satellite: function () { return api.get("/api/analytics/satellite/"); },
+      zones: function () { return api.get("/api/analytics/zones/"); },
+    },
+
+    satellite: {
+      analyses: function (params) { return api.get("/api/satellite/analyses/" + queryString(params)); },
+      createAnalysis: function (formData) { return api.upload("/api/satellite/analyses/", formData); },
+      runAnalysis: function (id) { return api.post("/api/satellite/analyses/" + id + "/run/", {}); },
+      detections: function (params) { return api.get("/api/satellite/detections/" + queryString(params)); },
+      detectionsGeoJson: function (params) { return api.get("/api/satellite/detections/geojson/" + queryString(params)); },
+      assessments: function (params) { return api.get("/api/satellite/assessments/" + queryString(params)); },
+      refreshAssessment: function (reportReference) {
+        return api.post("/api/satellite/assessments/refresh/", { report_reference: reportReference });
+      },
     },
 
     audit: {

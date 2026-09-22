@@ -25,6 +25,8 @@ from audit.services import record_event
 
 from .models import OfficerProfile, Role, User
 from .permissions import IsAdminRole
+from . import firebase
+from .services import FirebaseAuthDenied, resolve_firebase_user
 from .throttling import LoginRateThrottle, RegistrationRateThrottle
 from .serializers import (
     LoginSerializer,
@@ -113,6 +115,115 @@ class LoginView(APIView):
         return Response({"user": UserSerializer(user).data, "token": token.key})
 
 
+class FirebaseConfigView(APIView):
+    """
+    Public Firebase web config for the browser.
+
+    Served from the server rather than hardcoded into a template so the same
+    build runs against different Firebase projects, and so the login page can
+    fall back to password sign-in when Firebase is not configured at all.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        web_ready = firebase.is_web_configured()
+        server_ready = firebase.is_configured()
+
+        # Reported separately because the two halves fail for different reasons
+        # and need different fixes: the web config is copied from the Firebase
+        # console, while the service account is a downloaded private key.
+        if web_ready and server_ready:
+            reason = ""
+        elif not web_ready and not server_ready:
+            reason = "Firebase is not configured on this server."
+        elif not web_ready:
+            reason = "The Firebase web configuration is missing (FIREBASE_API_KEY and friends)."
+        else:
+            reason = (
+                "Sign-in verification is unavailable. Set FIREBASE_PROJECT_ID, or "
+                "supply a service account via FIREBASE_CREDENTIALS_FILE."
+            )
+
+        return Response(
+            {
+                "configured": web_ready and server_ready,
+                "web_configured": web_ready,
+                "server_configured": server_ready,
+                # Officer provisioning needs a service account; sign-in does not.
+                # Reported separately so the officers screen can explain itself.
+                "admin_sdk": firebase.has_admin_credentials(),
+                # None when it could not be determined — the page then leaves the
+                # Google button enabled rather than hiding something that works.
+                "google_enabled": firebase.google_provider_enabled() if web_ready else None,
+                "reason": reason,
+                "config": firebase.public_config() if web_ready else {},
+                # The browser uses this to decide whether to show the Google
+                # button; the server enforces the same rule on every request.
+                "google_enabled_for": ["CITIZEN"],
+            }
+        )
+
+
+class FirebaseLoginView(APIView):
+    """
+    Exchange a verified Firebase ID token for a ResQNet session.
+
+    The client never states who it is or what role it wants. It presents a token;
+    the server verifies it against Google's public keys and decides the rest.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [LoginRateThrottle]
+
+    def post(self, request):
+        id_token = (request.data.get("id_token") or "").strip()
+
+        if not firebase.is_configured():
+            return Response(
+                {"detail": "Firebase sign-in is not configured on this server."},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+        try:
+            claims = firebase.verify_id_token(id_token)
+        except firebase.FirebaseError as exc:
+            # A token that fails verification is a failed sign-in attempt and
+            # consumes the brute-force allowance.
+            for throttle in self.get_throttles():
+                if isinstance(throttle, LoginRateThrottle):
+                    throttle.record_failure(request, self)
+            return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            user, created = resolve_firebase_user(claims, request=request)
+        except FirebaseAuthDenied as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
+        django_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        token, _ = Token.objects.get_or_create(user=user)
+
+        record_event(
+            entity=user,
+            action=AuditAction.USER_LOGGED_IN,
+            user=user,
+            metadata={
+                "role": user.role,
+                "via": "firebase",
+                "provider": claims.get("provider", ""),
+                "new_account": created,
+            },
+            request=request,
+        )
+
+        return Response(
+            {"user": UserSerializer(user).data, "token": token.key, "created": created},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -191,15 +302,53 @@ class OfficerListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         officer = serializer.save()
 
+        # Provision the matching Firebase account so the administrator does not
+        # have to create every officer twice. Best-effort: a Firebase failure
+        # must not roll back a valid ResQNet officer record, so it is reported
+        # rather than raised.
+        provisioning = {"firebase": "skipped", "reset_link": "", "detail": ""}
+        if firebase.is_configured():
+            try:
+                result = firebase.provision_user(
+                    email=officer.email,
+                    display_name=officer.get_full_name() or officer.username,
+                )
+                officer.firebase_uid = result["uid"]
+                officer.auth_provider = "password"
+                officer.save(update_fields=["firebase_uid", "auth_provider", "updated_at"])
+                provisioning = {
+                    "firebase": "created" if result["created"] else "linked",
+                    "reset_link": result["reset_link"],
+                    "detail": (
+                        "Send this link to the officer so they can set their own password. "
+                        "It is single-use and expires."
+                    ),
+                }
+            except firebase.FirebaseError as exc:
+                provisioning = {
+                    "firebase": "failed",
+                    "reset_link": "",
+                    "detail": (
+                        f"The ResQNet officer record was created, but the Firebase "
+                        f"account was not: {exc}"
+                    ),
+                }
+
         record_event(
             entity=officer,
             action=AuditAction.OFFICER_CREATED,
             user=request.user,
             new_state=Role.FIELD_OFFICER,
-            metadata={"employee_id": officer.officer_profile.employee_id},
+            metadata={
+                "employee_id": officer.officer_profile.employee_id,
+                "firebase": provisioning["firebase"],
+            },
             request=request,
         )
-        return Response(UserSerializer(officer).data, status=status.HTTP_201_CREATED)
+
+        payload = UserSerializer(officer).data
+        payload["provisioning"] = provisioning
+        return Response(payload, status=status.HTTP_201_CREATED)
 
 
 class OfficerDetailView(generics.RetrieveUpdateAPIView):

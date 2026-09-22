@@ -46,12 +46,15 @@ User = get_user_model()
 
 DEMO_PASSWORD = "ResQNet@2026"
 
-#: Duty stations, roughly around Kollam and Alappuzha districts in Kerala.
+#: The field-officer roster. Kept identical to `set_officers.py` so reseeding
+#: never resurrects a different set of names. Duty stations are around the
+#: Kollam and Alappuzha districts of Kerala.
 OFFICERS = [
-    ("officer.rao", "Anitha", "Rao", "EMP-1001", "Kollam", Decimal("8.8932"), Decimal("76.6141"), 6),
-    ("officer.menon", "Vijay", "Menon", "EMP-1002", "Kollam", Decimal("8.9210"), Decimal("76.5810"), 5),
-    ("officer.iyer", "Suresh", "Iyer", "EMP-1003", "Alappuzha", Decimal("9.4981"), Decimal("76.3388"), 5),
-    ("officer.thomas", "Reena", "Thomas", "EMP-1004", "Alappuzha", Decimal("9.4650"), Decimal("76.3300"), 4),
+    ("officer.akmal", "Akmal", "", "EMP-1001", "Kollam", Decimal("8.8932"), Decimal("76.6141"), 6),
+    ("officer.najeeb", "Najeeb", "", "EMP-1002", "Kollam", Decimal("8.9210"), Decimal("76.5810"), 5),
+    ("officer.sohail", "Sohail", "", "EMP-1003", "Alappuzha", Decimal("9.4981"), Decimal("76.3388"), 5),
+    ("officer.abdullah", "Abdullah", "", "EMP-1004", "Alappuzha", Decimal("9.4650"), Decimal("76.3300"), 5),
+    ("officer.rehan", "Rehan", "", "EMP-1005", "Kollam", Decimal("8.9050"), Decimal("76.6300"), 5),
 ]
 
 CITIZENS = [
@@ -408,7 +411,12 @@ class Command(BaseCommand):
         self.stdout.write(f"  Payouts complete {paid}")
         self.stdout.write(f"  Audit events     {AuditEvent.objects.count()}")
         self.stdout.write("")
-        self.stdout.write(self.style.WARNING("  Log in with any of these — password: " + DEMO_PASSWORD))
-        self.stdout.write("    admin           (administrator)")
-        self.stdout.write("    officer.rao     (field officer, Kollam)")
-        self.stdout.write("    citizen.das     (citizen)")
+        self.stdout.write(self.style.WARNING("  Administrator — password: " + DEMO_PASSWORD))
+        self.stdout.write("    admin")
+        self.stdout.write("")
+        self.stdout.write(self.style.WARNING("  Field officers sign in through Firebase with these emails:"))
+        for _, name, _, employee_id, zone, _, _, _ in OFFICERS:
+            self.stdout.write(f"    officer.{name.lower()}@resqnet.local   {name} ({zone}, {employee_id})")
+        self.stdout.write("")
+        self.stdout.write(self.style.WARNING("  Citizens — password: " + DEMO_PASSWORD))
+        self.stdout.write("    citizen.das")

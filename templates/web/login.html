@@ -1,66 +1,256 @@
 {% extends "base.html" %}
+{% load static %}
 
-{% block title %}Log in — ResQNet{% endblock %}
+{#
+  Sign-in page.
+
+  Two tabs, because the rules genuinely differ:
+
+    * Citizens  — email/password OR Google.
+    * Officers  — email/password only. Their accounts are issued by an
+      administrator, so they must not be reachable through whatever personal
+      Google account happens to share the address.
+
+  The tabs are a convenience, not a security boundary. The server checks the
+  provider against the account's actual role on every request, so hiding the
+  Google button proves nothing on its own.
+#}
+
+{% block title %}Sign in — ResQNet{% endblock %}
+
+{% block head %}
+<style>
+  .auth-wrap { max-width: 460px; margin-inline: auto; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; background: var(--slate-100);
+          padding: .35rem; border-radius: var(--radius); margin-bottom: 1.5rem; }
+  .tabs button {
+    border: 0; background: transparent; font: inherit; font-weight: 600; cursor: pointer;
+    padding: .7rem .5rem; border-radius: calc(var(--radius) - 3px); color: var(--text-soft);
+    min-height: 44px;
+  }
+  .tabs button[aria-selected="true"] { background: #fff; color: var(--text); box-shadow: var(--shadow-sm); }
+  .divider { display: flex; align-items: center; gap: .85rem; margin: 1.25rem 0; color: var(--text-soft); font-size: .85rem; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .btn-google {
+    background: #fff; color: #1f1f1f; border: 1px solid var(--slate-300); font-weight: 600;
+  }
+  .btn-google:hover:not(:disabled) { background: var(--slate-50); }
+  .btn-google svg { width: 18px; height: 18px; flex: none; }
+  .role-note { font-size: .87rem; color: var(--text-soft); margin-top: -.5rem; margin-bottom: 1.1rem; }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="page">
-  <div class="container-narrow" style="max-width:460px">
+  <div class="container-narrow auth-wrap">
     <div class="page-head center">
-      <h1>Log in</h1>
+      <h1>Sign in</h1>
       <p>Access your ResQNet portal.</p>
     </div>
 
     <div class="card">
+      <div class="tabs" role="tablist" aria-label="Account type">
+        <button type="button" role="tab" id="tab-citizen" aria-selected="true" aria-controls="panel">Citizen</button>
+        <button type="button" role="tab" id="tab-officer" aria-selected="false" aria-controls="panel">Field officer</button>
+      </div>
+
       <div id="form-alert"></div>
 
-      <form id="login-form" novalidate>
-        <div class="field">
-          <label for="username">Username</label>
-          <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      <div id="panel" role="tabpanel">
+        <p class="role-note" id="role-note">
+          Sign in with your email, or continue with Google.
+        </p>
+
+        <form id="login-form" novalidate>
+          <div class="field">
+            <label for="email">Email address</label>
+            <input type="email" id="email" name="email" autocomplete="username" required autofocus>
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" autocomplete="current-password" required>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block btn-lg" id="submit">Sign in</button>
+        </form>
+
+        <div id="google-block">
+          <div class="divider">or</div>
+          <button type="button" class="btn btn-google btn-block btn-lg" id="google">
+            <svg viewBox="0 0 48 48" aria-hidden="true">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            Continue with Google
+          </button>
+          <p class="hint center" style="margin-top:.6rem">Available for citizen accounts.</p>
         </div>
 
-        <div class="field">
-          <label for="password">Password</label>
-          <input type="password" id="password" name="password" autocomplete="current-password" required>
-        </div>
-
-        <button type="submit" class="btn btn-primary btn-block btn-lg" id="submit">Log in</button>
-      </form>
-
-      <p class="center small muted mt-2" style="margin-bottom:0">
-        No account yet? <a href="{% url 'web:register' %}">Register as a citizen</a>
-      </p>
+        <p class="center small mt-2" style="margin-bottom:0">
+          <a href="#" id="forgot">Forgotten your password?</a>
+        </p>
+      </div>
     </div>
 
     <p class="center small muted mt-2">
-      Field officer and administrator accounts are created by an administrator.
+      New here? <a href="{% url 'web:register' %}">Create a citizen account</a><br>
+      Field officer and administrator accounts are issued by an administrator.
     </p>
+
+    <details class="mt-2">
+      <summary class="small muted" style="cursor:pointer">Administrator sign-in</summary>
+      <div class="card card-tight mt-2">
+        <p class="small muted">Administrators sign in with their ResQNet username and password.</p>
+        <form id="admin-form" novalidate>
+          <div class="field">
+            <label for="admin_username">Username</label>
+            <input type="text" id="admin_username" name="username" autocomplete="username">
+          </div>
+          <div class="field">
+            <label for="admin_password">Password</label>
+            <input type="password" id="admin_password" name="password" autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn btn-secondary btn-block" id="admin-submit">Sign in as administrator</button>
+        </form>
+      </div>
+    </details>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'js/firebase-auth.js' %}"></script>
 <script>
+(function () {
+  "use strict";
+
+  var mode = "citizen";
+
+  function destinationFor(user) {
+    if (user.role === "ADMIN") return "{% url 'web:admin_dashboard' %}";
+    if (user.role === "FIELD_OFFICER") return "{% url 'web:officer_dashboard' %}";
+    return "{% url 'web:citizen_dashboard' %}";
+  }
+
+  function go(data) {
+    // Honour ?next= when the user was redirected here from a protected page.
+    var params = new URLSearchParams(window.location.search);
+    var next = params.get("next");
+    window.location.href = next && next.charAt(0) === "/" ? next : destinationFor(data.user);
+  }
+
+  function setMode(next) {
+    mode = next;
+    var isCitizen = mode === "citizen";
+    document.getElementById("tab-citizen").setAttribute("aria-selected", isCitizen);
+    document.getElementById("tab-officer").setAttribute("aria-selected", !isCitizen);
+    document.getElementById("google-block").hidden = !isCitizen;
+    document.getElementById("role-note").textContent = isCitizen
+      ? "Sign in with your email, or continue with Google."
+      : "Field officers sign in with the email and password issued by their administrator.";
+    ui.clear("#form-alert");
+  }
+
+  document.getElementById("tab-citizen").addEventListener("click", function () { setMode("citizen"); });
+  document.getElementById("tab-officer").addEventListener("click", function () { setMode("officer"); });
+
+  /* ------------------------------------------------ Firebase availability */
+  firebaseAuth.init().then(function () {
+    if (!firebaseAuth.isConfigured()) {
+      ui.flash("#form-alert", "warning",
+        "Firebase sign-in is not configured on this server yet. " +
+        "Administrators can still sign in below with a ResQNet username and password.");
+      document.getElementById("submit").disabled = true;
+      document.getElementById("google").disabled = true;
+      return;
+    }
+
+    // Only an explicit false disables the button. When the provider probe could
+    // not reach Google we leave it enabled rather than hiding something that
+    // may well work.
+    if (firebaseAuth.googleEnabled() === false) {
+      var button = document.getElementById("google");
+      button.disabled = true;
+      button.parentNode.insertAdjacentHTML("beforeend",
+        '<div class="alert alert-info" style="margin-top:.75rem">' +
+          "<strong>Google sign-in is not enabled yet</strong>" +
+          "Turn it on in the Firebase console under <em>Authentication → Sign-in method → " +
+          "Google</em>, then reload this page. Email and password sign-in works now." +
+        "</div>");
+    }
+  });
+
+  /* ------------------------------------------------------ Email/password */
   document.getElementById("login-form").addEventListener("submit", function (event) {
     event.preventDefault();
-    var form = event.target;
     var button = document.getElementById("submit");
+    var email = document.getElementById("email").value.trim();
+    var password = document.getElementById("password").value;
+
+    if (!email || !password) {
+      ui.flash("#form-alert", "error", "Enter your email address and password.");
+      return;
+    }
+
     ui.clear("#form-alert");
     ui.setBusy(button, true, "Signing in…");
 
-    api.auth.login(form.username.value.trim(), form.password.value)
-      .then(function (data) {
-        // Send each role to the portal it actually uses.
-        var role = data.user.role;
-        var destination = "{% url 'web:citizen_dashboard' %}";
-        if (role === "ADMIN") destination = "{% url 'web:admin_dashboard' %}";
-        else if (role === "FIELD_OFFICER") destination = "{% url 'web:officer_dashboard' %}";
-        window.location.href = destination;
-      })
+    firebaseAuth.signInWithPassword(email, password)
+      .then(go)
       .catch(function (error) {
         ui.setBusy(button, false);
-        ui.flash("#form-alert", "error", error.message);
+        ui.flash("#form-alert", "error", error.message || String(error));
       });
   });
+
+  /* ------------------------------------------------------------- Google */
+  document.getElementById("google").addEventListener("click", function () {
+    var button = this;
+    ui.clear("#form-alert");
+    ui.setBusy(button, true, "Opening Google…");
+
+    firebaseAuth.signInWithGoogle()
+      .then(go)
+      .catch(function (error) {
+        ui.setBusy(button, false);
+        ui.flash("#form-alert", "error", error.message || String(error));
+      });
+  });
+
+  /* ------------------------------------------------------ Password reset */
+  document.getElementById("forgot").addEventListener("click", function (event) {
+    event.preventDefault();
+    var email = document.getElementById("email").value.trim();
+    if (!email) {
+      ui.flash("#form-alert", "info", "Enter your email address above, then click this link again.");
+      return;
+    }
+    firebaseAuth.sendPasswordReset(email)
+      .then(function () {
+        ui.flash("#form-alert", "success",
+          "If an account exists for " + email + ", a password reset email is on its way.");
+      })
+      .catch(function (error) { ui.flash("#form-alert", "error", error.message); });
+  });
+
+  /* ----------------------------------------- Administrator (Django auth) */
+  document.getElementById("admin-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var button = document.getElementById("admin-submit");
+    ui.clear("#form-alert");
+    ui.setBusy(button, true, "Signing in…");
+
+    api.auth.login(
+      document.getElementById("admin_username").value.trim(),
+      document.getElementById("admin_password").value
+    ).then(go).catch(function (error) {
+      ui.setBusy(button, false);
+      ui.flash("#form-alert", "error", error.message);
+    });
+  });
+})();
 </script>
 {% endblock %}

@@ -19,4 +19,6 @@ urlpatterns = [
     path("compensation/", views.compensation, name="compensation"),
     path("payouts/", views.payouts, name="payouts"),
     path("trend/", views.trend, name="trend"),
+    path("satellite/", views.satellite, name="satellite"),
+    path("zones/", views.zones, name="zones"),
 ]

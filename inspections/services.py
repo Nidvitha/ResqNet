@@ -202,6 +202,15 @@ def sign_off_inspection(*, inspection: Inspection, signature_name: str, user, re
 
     calculate_compensation(inspection=inspection, user=user, request=request)
 
+    # Field verification is authoritative and should immediately influence the
+    # cross-source confidence output.
+    try:
+        from satellite.services import refresh_damage_assessment
+
+        refresh_damage_assessment(report, user=user, request=request)
+    except Exception:  # noqa: BLE001
+        logger.exception("Damage assessment refresh failed after sign-off for %s", report.reference)
+
     logger.info("Inspection signed for %s by %s", report.reference, user.username)
     return inspection
 

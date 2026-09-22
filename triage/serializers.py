@@ -2,7 +2,31 @@
 
 from rest_framework import serializers
 
-from .models import TriageResult, TriageRule, TriageThreshold
+from .models import CriticalInfrastructureSite, TriageResult, TriageRule, TriageThreshold
+
+
+class CriticalInfrastructureSiteSerializer(serializers.ModelSerializer):
+    infrastructure_type_display = serializers.CharField(
+        source="get_infrastructure_type_display", read_only=True
+    )
+
+    class Meta:
+        model = CriticalInfrastructureSite
+        fields = [
+            "id",
+            "name",
+            "infrastructure_type",
+            "infrastructure_type_display",
+            "district",
+            "latitude",
+            "longitude",
+            "impact_weight",
+            "is_active",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class TriageRuleSerializer(serializers.ModelSerializer):
