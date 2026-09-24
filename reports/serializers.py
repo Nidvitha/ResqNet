@@ -92,7 +92,7 @@ class ReportDetailSerializer(serializers.ModelSerializer):
             "wall_damage", "people_affected", "medical_assistance_needed",
             "status", "status_display", "priority_score", "triage_level",
             "progress_percent", "is_editable_by_citizen",
-            "photos", "created_offline", "client_created_at",
+            "photos", "damage_details", "created_offline", "client_created_at",
             "created_at", "updated_at", "submitted_at", "closed_at",
         ]
         read_only_fields = [
@@ -125,6 +125,7 @@ class ReportCreateSerializer(serializers.ModelSerializer):
             "roof_collapsed", "people_trapped", "exposed_live_wires",
             "standing_water", "road_blocked", "major_structural_damage",
             "wall_damage", "people_affected", "medical_assistance_needed",
+            "damage_details",
             "idempotency_key", "created_offline", "client_created_at",
             "submit_now",
         ]
@@ -146,6 +147,28 @@ class ReportCreateSerializer(serializers.ModelSerializer):
                 "That figure looks implausible for a single property. "
                 "Please contact the district control room directly."
             )
+        return value
+
+    def validate_damage_details(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Damage details must be an object.")
+        numeric_fields = {
+            "cultivated_area", "area_damaged", "crop_damage_percent", "area_affected",
+            "estimated_crop_loss", "affected_area", "estimated_property_loss",
+            "estimated_loss", "estimated_business_loss", "estimated_repair_loss",
+            "number_affected", "number_injured_lost",
+        }
+        for field in numeric_fields.intersection(value):
+            try:
+                number = float(value[field])
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({field: "Enter a valid number."}) from None
+            if number < 0:
+                raise serializers.ValidationError({field: "Value cannot be negative."})
+            if field == "crop_damage_percent" and number > 100:
+                raise serializers.ValidationError({field: "Percentage cannot exceed 100."})
+            if field in {"number_affected", "number_injured_lost"} and number != int(number):
+                raise serializers.ValidationError({field: "Enter a whole number."})
         return value
 
     def validate(self, attrs):

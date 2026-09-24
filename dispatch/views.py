@@ -112,6 +112,7 @@ def offline_package(request):
                 "assignment_id": assignment.id,
                 "report_id": report.id,
                 "reference": report.reference,
+                "damage_category": report.damage_category,
                 "disaster_type": report.disaster_type,
                 "damage_category": report.damage_category,
                 "description": report.description,

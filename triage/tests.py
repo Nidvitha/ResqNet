@@ -202,6 +202,48 @@ class TriageEngineTests(TestCase):
         ]
         self.assertTrue(authoritative)
 
+    def test_category_specific_reports_are_scored_and_persisted(self):
+        cases = [
+            ("FLOOD", "RESIDENTIAL", {"structural_damage": "SEVERE"}),
+            ("FIRE", "RESIDENTIAL", {"fire_damage_severity": "SEVERE"}),
+            ("FIRE", "AGRICULTURAL", {"crop_damage_severity": "SEVERE"}),
+            ("FLOOD", "AGRICULTURAL", {"waterlogging": "SEVERE"}),
+            ("FIRE", "COMMERCIAL", {"building_structural_damage": "SEVERE"}),
+            ("FLOOD", "INFRASTRUCTURE", {"road_bridge_blockage": "SEVERE"}),
+            ("FIRE", "LIVESTOCK", {"shelter_damage": "SEVERE"}),
+        ]
+        for disaster, category, details in cases:
+            with self.subTest(disaster=disaster, category=category):
+                report = make_report(
+                    make_citizen(username=f"{disaster.lower()}_{category.lower()}"),
+                    disaster_type=disaster,
+                    damage_category=category,
+                    damage_details=details,
+                )
+                report.refresh_from_db()
+                result = TriageResult.objects.get(report=report)
+                self.assertIsNotNone(report.priority_score)
+                self.assertIsNotNone(report.triage_level)
+                self.assertGreater(result.score, 0)
+                self.assertGreater(result.response_target_hours, 0)
+
+    def test_every_supported_disaster_category_combination_has_a_scoring_path(self):
+        disasters = ["FLOOD", "EARTHQUAKE", "CYCLONE", "LANDSLIDE", "FIRE", "DROUGHT", "OTHER"]
+        categories = ["RESIDENTIAL", "COMMERCIAL", "AGRICULTURAL", "INFRASTRUCTURE", "LIVESTOCK", "OTHER"]
+        for disaster in disasters:
+            for category in categories:
+                with self.subTest(disaster=disaster, category=category):
+                    report = make_report(
+                        make_citizen(username=f"matrix_{disaster.lower()}_{category.lower()}"),
+                        disaster_type=disaster,
+                        damage_category=category,
+                        damage_details={"damage_severity": "MINOR"},
+                    )
+                    result = TriageResult.objects.get(report=report)
+                    self.assertIsNotNone(result.score)
+                    self.assertIsNotNone(result.level)
+                    self.assertGreater(result.response_target_hours, 0)
+
 
 class TriageAPITests(APITestCase):
     def setUp(self):
@@ -217,6 +259,72 @@ class TriageAPITests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["score"], 90)
+
+    def test_live_preview_uses_category_specific_damage_details(self):
+        self.client.force_authenticate(self.citizen)
+        response = self.client.post(
+            reverse("reports:triage-preview"),
+            {
+                "disaster_type": "FIRE",
+                "damage_category": "AGRICULTURAL",
+                "damage_details": {"crop_damage_severity": "SEVERE"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["score"], 24)
+
+        response = self.client.post(
+            reverse("reports:triage-preview"),
+            {
+                "disaster_type": "FIRE",
+                "damage_category": "AGRICULTURAL",
+                "damage_details": {"crop_damage_severity": "MODERATE"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.data["score"], 16)
+
+        response = self.client.post(
+            reverse("reports:triage-preview"),
+            {
+                "disaster_type": "FIRE",
+                "damage_category": "AGRICULTURAL",
+                "damage_details": {},
+            },
+            format="json",
+        )
+        self.assertEqual(response.data["score"], 0)
+
+    def test_live_preview_matches_persisted_submission_score(self):
+        details = {
+            "crop_damage_severity": "SEVERE",
+            "crop_damage_percent": 80,
+            "estimated_crop_loss": 50000,
+        }
+        self.client.force_authenticate(self.citizen)
+        preview = self.client.post(
+            reverse("reports:triage-preview"),
+            {
+                "disaster_type": "FIRE",
+                "damage_category": "AGRICULTURAL",
+                "damage_details": details,
+                "standing_water": True,
+                "wall_damage": True,
+                "people_affected": 4,
+            },
+            format="json",
+        )
+        report = make_report(
+            self.citizen,
+            disaster_type="FIRE",
+            damage_category="AGRICULTURAL",
+            damage_details=details,
+        )
+        report.refresh_from_db()
+        self.assertEqual(preview.data["score"], report.priority_score)
+        self.assertEqual(preview.data["level"], report.triage_level)
+        self.assertEqual(preview.data["response_target_hours"], report.triage_result.response_target_hours)
 
     def test_only_admin_can_retune_the_rules(self):
         ensure_default_configuration()

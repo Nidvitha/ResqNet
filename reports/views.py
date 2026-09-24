@@ -234,4 +234,15 @@ def triage_preview(request):
     except (TypeError, ValueError):
         indicators["people_affected"] = 0
 
+    if request.data.get("disaster_type") and request.data.get("damage_category"):
+        report = DisasterReport(
+            disaster_type=request.data["disaster_type"],
+            damage_category=request.data["damage_category"],
+            damage_details=request.data.get("damage_details") or {},
+            people_affected=indicators["people_affected"],
+            **{key: value for key, value in indicators.items() if key != "people_affected"},
+        )
+        indicators = report.damage_indicators()
+        return Response(preview_score(indicators, report=report))
+
     return Response(preview_score(indicators))

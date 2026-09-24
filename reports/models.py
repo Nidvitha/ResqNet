@@ -103,6 +103,11 @@ class DisasterReport(models.Model):
         default=0, help_text="Number of people affected at this location."
     )
     medical_assistance_needed = models.BooleanField(default=False)
+    damage_details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Disaster and property-specific answers from the citizen report form.",
+    )
 
     # --- Workflow state ----------------------------------------------------
     status = models.CharField(
@@ -224,7 +229,7 @@ class DisasterReport(models.Model):
         return self.assignments.exclude(status__in=["REASSIGNED", "CANCELLED"]).order_by("-assigned_at").first()
 
     def damage_indicators(self) -> dict[str, bool | int]:
-        """The exact inputs the triage engine consumes. Kept in one place."""
+        """Return legacy safety indicators used by the configurable rule table."""
         return {
             "roof_collapsed": self.roof_collapsed,
             "people_trapped": self.people_trapped,

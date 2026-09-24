@@ -50,12 +50,18 @@
            value.charAt(0) + value.slice(1).toLowerCase() + "</strong></div>";
   }
 
-  function decisionPanel() {
+  function decisionPanel(candidates, candidateError) {
     var canDecide = ["PENDING_APPROVAL", "NEEDS_REVIEW"].indexOf(report.status) !== -1;
     var canInitiate = report.status === "PAYOUT_PENDING";
     var canComplete = report.status === "PAYOUT_INITIATED";
+    var canAssign = report.status === "TRIAGED";
 
-    if (!canDecide && !canInitiate && !canComplete) {
+    if (report.status === "ASSIGNED") {
+      return '<div class="card decision-panel"><h2>Decision</h2>' +
+        '<p class="muted small">This case is assigned to a field officer and ready for inspection.</p></div>';
+    }
+
+    if (!canDecide && !canInitiate && !canComplete && !canAssign) {
       return '<div class="card decision-panel"><h2>Decision</h2>' +
         '<p class="muted small">This case is ' +
         ui.esc((report.status_display || "").toLowerCase()) +
@@ -63,6 +69,26 @@
     }
 
     var html = '<div class="card decision-panel"><h2>Decision</h2>';
+
+    if (canAssign) {
+      html += '<h3>Assign Field Officer</h3>';
+      if (candidateError) {
+        html += '<div class="alert alert-error">' + ui.esc(candidateError) + "</div>";
+      } else if (!candidates.length) {
+        html += '<p class="muted small">No available field officers match this case right now.</p>';
+      } else {
+        html += '<div class="field"><label for="assignment-officer">Field officer</label>' +
+          '<select id="assignment-officer">' +
+          candidates.map(function (candidate) {
+            return '<option value="' + candidate.officer_id + '">' +
+              ui.esc(candidate.officer_name) + " — " + ui.esc(candidate.employee_id) +
+              " · " + candidate.distance_km + " km</option>";
+          }).join("") + "</select></div>" +
+          '<div class="field"><label for="assignment-note">Assignment note (optional)</label>' +
+            '<textarea id="assignment-note" rows="3" maxlength="500" placeholder="Add context for the field officer"></textarea></div>' +
+          '<button class="btn btn-primary btn-block" id="assign-officer">Assign Officer</button>';
+      }
+    }
 
     if (canDecide) {
       html +=
@@ -95,7 +121,7 @@
     return html + "</div>";
   }
 
-  function render(timeline, assignments) {
+  function render(timeline, assignments, candidates, candidateError) {
     var html = "";
 
     /* ---- Header ---- */
@@ -230,7 +256,7 @@
       }).join("") + "</ul></div>";
 
     html += "</div>";                    // end left column
-    html += "<div>" + decisionPanel() + "</div>";
+    html += "<div>" + decisionPanel(candidates, candidateError) + "</div>";
     html += "</div>";                    // end grid
 
     document.getElementById("case").innerHTML = html;
@@ -282,6 +308,16 @@
   }
 
   function wireDecisions() {
+    var assign = document.getElementById("assign-officer");
+    if (assign) {
+      assign.addEventListener("click", function () {
+        var officer = document.getElementById("assignment-officer");
+        var note = document.getElementById("assignment-note").value.trim();
+        act(api.dispatch.assign(report.id, Number(officer.value), note), assign,
+            "Officer assigned. The case is now assigned.");
+      });
+    }
+
     var approve = document.getElementById("approve");
     if (approve) {
       approve.addEventListener("click", function () {
@@ -347,6 +383,12 @@
         api.reports.detail(match.id),
         api.reports.timeline(match.id),
         api.get("/api/dispatch/assignments/?page_size=50").catch(function () { return { results: [] }; }),
+        api.dispatch.candidates(match.id).catch(function (error) {
+          return { error: error.message };
+        }),
+        api.officers.list({ available: true }).catch(function (error) {
+          return { error: error.message };
+        }),
         api.get("/api/inspections/?page_size=200").catch(function () { return { results: [] }; }),
         api.compensation.claims({ page_size: 200 }).catch(function () { return { results: [] }; }),
         api.approvals.payouts({ page_size: 200 }).catch(function () { return { results: [] }; }),
@@ -354,17 +396,34 @@
         report = results[0];
         var timeline = results[1];
         var assignments = (results[2].results || []).filter(function (a) { return a.report === report.id; });
-        inspection = (results[3].results || []).filter(function (i) { return i.report === report.id; })[0] || null;
-        payout = (results[5].results || []).filter(function (p) { return p.report === report.id; })[0] || null;
+        var candidatePayload = results[3];
+        var candidates = Array.isArray(candidatePayload) ? candidatePayload : [];
+        var officerPayload = results[4];
+        var availableOfficers = officerPayload.results || officerPayload;
+        var candidateError = candidatePayload.error || officerPayload.error || "";
+        if (!candidates.length && report.status === "TRIAGED" && Array.isArray(availableOfficers)) {
+          candidates = availableOfficers.map(function (officer) {
+            var profile = officer.officer_profile || {};
+            return {
+              officer_id: officer.id,
+              officer_name: [officer.first_name, officer.last_name].filter(Boolean).join(" ") || officer.username,
+              employee_id: profile.employee_id || officer.username,
+              zone: profile.zone || officer.district || "Unassigned zone",
+              distance_km: "manual selection",
+            };
+          });
+        }
+        inspection = (results[5].results || []).filter(function (i) { return i.report === report.id; })[0] || null;
+        payout = (results[7].results || []).filter(function (p) { return p.report === report.id; })[0] || null;
 
-        var claimRow = (results[4].results || []).filter(function (c) { return c.report === report.id; })[0];
+        var claimRow = (results[6].results || []).filter(function (c) { return c.report === report.id; })[0];
         var claimPromise = claimRow
           ? api.compensation.breakdown(claimRow.id).catch(function () { return null; })
           : Promise.resolve(null);
 
         return claimPromise.then(function (breakdown) {
           claim = breakdown;
-          render(timeline, assignments);
+          render(timeline, assignments, candidates, candidateError);
         });
       });
     }).catch(function (error) { ui.errorBox("#case", error.message); });

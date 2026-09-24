@@ -116,7 +116,11 @@ def sync_inspections(request):
             )
             continue
 
-        serializer = InspectionUpdateSerializer(data=entry, partial=True)
+        serializer = InspectionUpdateSerializer(
+            data=entry,
+            partial=True,
+            context={"category": assignment.report.damage_category},
+        )
         if not serializer.is_valid():
             failed.append(
                 {"index": index, "idempotency_key": client_key, "errors": serializer.errors}

@@ -13,6 +13,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from audit.models import AuditAction, AuditEvent
 from config.testing import make_admin, make_citizen, make_officer, make_report
 from reports.states import CaseStatus
 
@@ -231,3 +232,40 @@ class DispatchAPITests(APITestCase):
                 report=self.report, status=AssignmentStatus.REASSIGNED
             ).exists()
         )
+
+
+class ManualAssignmentFromTriageTests(APITestCase):
+    def test_admin_can_assign_a_triaged_case_and_audit_the_transition(self):
+        citizen = make_citizen(username="waiting_citizen", district="Kollam")
+        report = make_report(citizen)
+        self.assertEqual(report.status, CaseStatus.TRIAGED)
+
+        officer = make_officer(username="manual_officer", zone="Kollam")
+        admin = make_admin(username="manual_admin")
+        self.client.force_authenticate(admin)
+
+        response = self.client.post(
+            reverse("dispatch:assign-manually"),
+            {
+                "report_id": report.pk,
+                "officer_id": officer.pk,
+                "note": "Assigned for the nearest available response team.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        report.refresh_from_db()
+        assignment = report.assignments.get()
+        self.assertEqual(report.status, CaseStatus.ASSIGNED)
+        self.assertEqual(assignment.officer, officer)
+        self.assertFalse(assignment.is_automatic)
+        self.assertEqual(assignment.selection_reason, "Assigned for the nearest available response team.")
+        event = AuditEvent.objects.get(
+            entity_type="DisasterReport",
+            entity_id=str(report.pk),
+            action=AuditAction.OFFICER_ASSIGNED,
+        )
+        self.assertEqual(event.performed_by, admin)
+        self.assertEqual(event.previous_state, CaseStatus.TRIAGED)
+        self.assertEqual(event.new_state, CaseStatus.ASSIGNED)

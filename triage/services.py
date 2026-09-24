@@ -59,6 +59,44 @@ DEFAULT_THRESHOLDS = [
 
 EARTH_RADIUS_KM = 6371.0
 
+# Category-specific rules use the same centralized preview/submission path.
+# Values are maximum points for severity fields; numeric fields use normalized
+# bands below. Text fields are intentionally absent because free text is not a
+# reliable urgency signal.
+SEVERITY_POINTS = {"NONE": 0, "MINOR": 8, "MODERATE": 16, "SEVERE": 24, "DESTROYED": 30}
+SAFETY_DETAIL_POINTS = {"other_safety_hazard": 15}
+DETAIL_RULES = {
+    "RESIDENTIAL": {
+        "FIRE": {"fire_damage_severity": 30, "structural_damage": 30, "roof_damage": 30, "wall_damage": 20, "electrical_damage": 25, "household_damage": 15, "smoke_damage": 15, "estimated_property_loss": ("money", 15)},
+        "FLOOD": {"water_level": ("number", 20), "flood_duration": ("number", 10), "structural_damage": 30, "roof_damage": 25, "wall_foundation_damage": 25, "electrical_damage": 25, "household_damage": 15, "estimated_property_loss": ("money", 15)},
+        "EARTHQUAKE": {"structural_damage": 35, "roof_damage": 30, "wall_damage": 25, "foundation_damage": 35, "electrical_damage": 20, "household_damage": 15, "estimated_property_loss": ("money", 15)},
+        "DEFAULT": {"damage_severity": 30, "structural_damage": 30, "property_contents_damage": 20, "estimated_loss": ("money", 15), "damage_description": "text"},
+    },
+    "AGRICULTURAL": {
+        "FIRE": {"crop_damage_severity": 30, "cultivated_area": ("area", 10), "area_damaged": ("area", 15), "crop_damage_percent": ("percent", 20), "farm_equipment_damage": 20, "irrigation_equipment_damage": 15, "storage_barn_damage": 20, "estimated_crop_loss": ("money", 20), "crop_type": "text", "damage_description": "text"},
+        "FLOOD": {"crop_damage_severity": 30, "cultivated_area": ("area", 10), "area_affected": ("area", 15), "waterlogging": 25, "waterlogging_duration": ("number", 10), "irrigation_damage": 15, "soil_land_damage": 20, "estimated_crop_loss": ("money", 20), "crop_type": "text", "damage_description": "text"},
+        "DROUGHT": {"crop_damage_severity": 30, "cultivated_area": ("area", 10), "area_affected": ("area", 15), "irrigation_availability_damage": 25, "estimated_crop_loss": ("money", 20), "crop_type": "text", "damage_description": "text"},
+        "DEFAULT": {"damage_severity": 30, "area_affected": ("area", 15), "estimated_crop_loss": ("money", 20), "crop_type": "text", "damage_description": "text"},
+    },
+    "COMMERCIAL": {
+        "FIRE": {"building_structural_damage": 30, "roof_wall_damage": 25, "equipment_damage": 25, "inventory_damage": 20, "electrical_damage": 25, "smoke_fire_damage": 25, "estimated_business_loss": ("money", 20)},
+        "FLOOD": {"building_damage": 30, "water_level": ("number", 20), "equipment_damage": 25, "inventory_damage": 20, "electrical_damage": 25, "estimated_loss": ("money", 20)},
+        "DEFAULT": {"structural_damage": 30, "equipment_damage": 25, "inventory_damage": 20, "estimated_loss": ("money", 20), "damage_description": "text"},
+    },
+    "INFRASTRUCTURE": {
+        "FLOOD": {"structural_damage": 30, "road_bridge_blockage": 25, "water_damage": 25, "utility_damage": 20, "accessibility_impact": 20, "affected_area": ("area", 15), "estimated_repair_loss": ("money", 20), "infrastructure_type": "text"},
+        "FIRE": {"structural_damage": 30, "fire_damage_severity": 30, "utility_damage": 20, "accessibility_impact": 20, "estimated_repair_loss": ("money", 20), "infrastructure_type": "text"},
+        "EARTHQUAKE": {"structural_damage": 35, "road_bridge_damage": 25, "utility_damage": 20, "accessibility_impact": 20, "estimated_repair_loss": ("money", 20), "infrastructure_type": "text"},
+        "DEFAULT": {"damage_severity": 30, "estimated_repair_loss": ("money", 20), "infrastructure_type": "text", "damage_description": "text"},
+    },
+    "LIVESTOCK": {
+        "FIRE": {"number_affected": ("count", 15), "number_injured_lost": ("count", 20), "shelter_damage": 25, "feed_water_damage": 15, "estimated_loss": ("money", 20), "livestock_type": "text"},
+        "FLOOD": {"number_affected": ("count", 15), "number_injured_lost": ("count", 20), "shelter_damage": 25, "feed_water_damage": 20, "estimated_loss": ("money", 20), "livestock_type": "text"},
+        "DEFAULT": {"number_affected": ("count", 15), "estimated_loss": ("money", 20), "livestock_type": "text", "damage_description": "text"},
+    },
+    "OTHER": {"DEFAULT": {"damage_severity": 30, "estimated_loss": ("money", 20), "damage_description": "text"}},
+}
+
 
 def ensure_default_configuration() -> None:
     """
@@ -183,6 +221,62 @@ def _satellite_points(report: DisasterReport) -> tuple[int, dict] | None:
     }
 
 
+def _band_points(value, maximum: int, kind: str) -> int:
+    """Normalize percentages and measurements into bounded urgency points."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if number <= 0:
+        return 0
+    if kind == "percent":
+        fraction = 0.2 if number <= 10 else 0.4 if number <= 30 else 0.6 if number <= 50 else 0.8 if number <= 75 else 1.0
+    elif kind == "money":
+        fraction = 0.2 if number <= 10000 else 0.4 if number <= 50000 else 0.7 if number <= 200000 else 1.0
+    elif kind == "count":
+        fraction = 0.2 if number <= 1 else 0.4 if number <= 5 else 0.7 if number <= 20 else 1.0
+    else:  # area, duration, and other bounded measurements
+        fraction = 0.2 if number <= 1 else 0.4 if number <= 5 else 0.7 if number <= 20 else 1.0
+    return round(maximum * fraction)
+
+
+def _category_detail_points(report: DisasterReport) -> tuple[int, list[dict]]:
+    """Score only fields visible for this report's current category/disaster."""
+    group = DETAIL_RULES.get(report.damage_category, DETAIL_RULES["OTHER"])
+    rules = group.get(report.disaster_type, group.get("DEFAULT", {}))
+    details = report.damage_details or {}
+    total = 0
+    breakdown = []
+
+    for field, rule in rules.items():
+        value = details.get(field)
+        if not value or rule == "text":
+            continue
+        if isinstance(rule, tuple):
+            points = _band_points(value, rule[1], rule[0])
+        else:
+            points = round(rule * SEVERITY_POINTS.get(str(value), 0) / 30)
+        if points:
+            total += points
+            breakdown.append({
+                "indicator": f"damage_details.{field}",
+                "label": field.replace("_", " ").title(),
+                "points": points,
+                "source": "CITIZEN_CATEGORY_RULE",
+            })
+
+    for field, maximum in SAFETY_DETAIL_POINTS.items():
+        if details.get(field):
+            total += maximum
+            breakdown.append({
+                "indicator": f"damage_details.{field}",
+                "label": field.replace("_", " ").title(),
+                "points": maximum,
+                "source": "CITIZEN_SAFETY_RULE",
+            })
+    return total, breakdown
+
+
 def _assessment_points(report: DisasterReport) -> tuple[int, list[dict]]:
     additions = []
     total = 0
@@ -281,9 +375,13 @@ def calculate_score(indicators: dict, *, report: DisasterReport | None = None) -
         )
 
     if report is not None:
-        additional_points, additional_breakdown = _assessment_points(report)
-        total += additional_points
-        breakdown.extend(additional_breakdown)
+        detail_points, detail_breakdown = _category_detail_points(report)
+        total += detail_points
+        breakdown.extend(detail_breakdown)
+        if report.pk:
+            additional_points, additional_breakdown = _assessment_points(report)
+            total += additional_points
+            breakdown.extend(additional_breakdown)
 
     return max(total, 0), breakdown
 
@@ -369,14 +467,14 @@ def run_triage(report: DisasterReport, *, user=None, request=None) -> TriageResu
     return result
 
 
-def preview_score(indicators: dict) -> dict:
+def preview_score(indicators: dict, *, report: DisasterReport | None = None) -> dict:
     """
     Score a hypothetical set of indicators without saving anything.
 
     Used by the citizen reporting form to show, live, how urgent the situation
     they are describing will be judged to be.
     """
-    score, breakdown = calculate_score(indicators)
+    score, breakdown = calculate_score(indicators, report=report)
     threshold = classify(score)
     return {
         "score": score,

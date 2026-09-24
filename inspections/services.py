@@ -33,6 +33,19 @@ class InspectionPermissionError(Exception):
     """Raised when someone other than the assigned officer tries to modify."""
 
 
+def _has_category_finding(category_data: dict) -> bool:
+    """Treat empty text, zero quantities, and NONE severity as no finding."""
+    for value in category_data.values():
+        if isinstance(value, str):
+            if value in {"", "NONE"}:
+                continue
+            if value.strip():
+                return True
+        elif isinstance(value, (int, float)) and value > 0:
+            return True
+    return False
+
+
 def _assert_can_modify(inspection: Inspection, user) -> None:
     if user.is_admin_role or user.is_superuser:
         return
@@ -100,6 +113,7 @@ def update_inspection(*, inspection: Inspection, data: dict, user, request=None)
     editable_fields = {
         "structural_damage", "roof_damage", "wall_damage", "foundation_damage",
         "electrical_damage", "water_damage", "household_damage",
+        "category_data",
         "people_affected", "is_habitable", "requires_immediate_relief",
         "estimated_damage_value", "remarks",
         "inspection_latitude", "inspection_longitude",
@@ -131,7 +145,11 @@ def complete_inspection(*, inspection: Inspection, user, request=None) -> Inspec
         raise InvalidTransition(
             f"Inspection is already {inspection.get_status_display().lower()}."
         )
-    if not inspection.has_any_damage() and not inspection.remarks.strip():
+    if (
+        not inspection.has_any_damage()
+        and not _has_category_finding(inspection.category_data)
+        and not inspection.remarks.strip()
+    ):
         raise InvalidTransition(
             "Record at least one damage assessment, or explain in the remarks why "
             "no damage was found."

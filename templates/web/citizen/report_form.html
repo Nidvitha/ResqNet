@@ -104,21 +104,20 @@
       <!-- ------------------------------------------------ Damage checks -->
       <div class="card mb-2">
         <fieldset>
-          <legend>Tick everything that applies</legend>
+          <legend>Damage assessment</legend>
           <p class="hint" style="margin-top:-.5rem;margin-bottom:1rem">
-            These determine how urgently your case is handled. Be honest — an officer will verify on site.
+            <strong id="assessment-context">Select a disaster and property type above.</strong>
+            Answer the questions that match your claim. An officer will verify on site.
           </p>
 
-          <div class="check-grid">
+          <div class="check-grid" id="safety-questions">
             <label class="check"><input type="checkbox" name="people_trapped"> People are trapped</label>
             <label class="check"><input type="checkbox" name="medical_assistance_needed"> Medical help is needed</label>
-            <label class="check"><input type="checkbox" name="roof_collapsed"> The roof has completely collapsed</label>
             <label class="check"><input type="checkbox" name="exposed_live_wires"> Live electrical wires are exposed</label>
-            <label class="check"><input type="checkbox" name="major_structural_damage"> Major structural damage</label>
-            <label class="check"><input type="checkbox" name="wall_damage"> Walls are damaged</label>
-            <label class="check"><input type="checkbox" name="standing_water"> There is standing water</label>
-            <label class="check"><input type="checkbox" name="road_blocked"> The road is blocked</label>
+            <label class="check"><input type="checkbox" name="other_safety_hazard"> Other immediate safety hazard</label>
           </div>
+
+          <div id="damage-questions" class="grid grid-2" style="gap:0 1rem;margin-top:1rem"></div>
 
           <div class="field mt-2">
             <label for="people_affected">How many people are affected at this location?</label>
@@ -204,6 +203,73 @@
   var form = document.getElementById("report-form");
   var compressedPhotos = [];
 
+  var SEVERITIES = [
+    ["NONE", "No damage"], ["MINOR", "Minor"], ["MODERATE", "Moderate"],
+    ["SEVERE", "Severe"], ["DESTROYED", "Completely destroyed"],
+  ];
+
+  var QUESTIONS = {
+    RESIDENTIAL: {
+      FIRE: [["fire_damage_severity", "Fire/burn damage severity", "severity"], ["structural_damage", "Structural damage", "severity"], ["roof_damage", "Roof damage", "severity"], ["wall_damage", "Wall damage", "severity"], ["electrical_damage", "Electrical damage", "severity"], ["household_damage", "Household contents damaged", "severity"], ["smoke_damage", "Smoke damage", "severity"], ["estimated_property_loss", "Estimated property loss", "money"]],
+      FLOOD: [["water_level", "Water level", "text"], ["flood_duration", "Duration of flooding", "text"], ["structural_damage", "Structural damage", "severity"], ["roof_damage", "Roof damage", "severity"], ["wall_foundation_damage", "Wall/foundation damage", "severity"], ["electrical_damage", "Electrical damage", "severity"], ["household_damage", "Household contents damaged", "severity"], ["estimated_property_loss", "Estimated property loss", "money"]],
+      EARTHQUAKE: [["structural_damage", "Structural damage", "severity"], ["roof_damage", "Roof damage", "severity"], ["wall_damage", "Wall damage", "severity"], ["foundation_damage", "Foundation damage", "severity"], ["electrical_damage", "Electrical damage", "severity"], ["household_damage", "Household contents damaged", "severity"], ["estimated_property_loss", "Estimated property loss", "money"]],
+      DEFAULT: [["damage_severity", "Damage severity", "severity"], ["structural_damage", "Structural damage", "severity"], ["property_contents_damage", "Property/contents damage", "severity"], ["estimated_loss", "Estimated loss", "money"], ["damage_description", "Damage description", "textarea"]],
+    },
+    AGRICULTURAL: {
+      FIRE: [["crop_type", "Crop type", "text"], ["cultivated_area", "Cultivated/affected area", "number"], ["area_damaged", "Area damaged", "number"], ["crop_damage_severity", "Crop damage severity", "severity"], ["crop_damage_percent", "Percentage of crop damaged", "number"], ["farm_equipment_damage", "Farm equipment damaged", "severity"], ["irrigation_equipment_damage", "Irrigation equipment damaged", "severity"], ["storage_barn_damage", "Storage/barn damage", "severity"], ["estimated_crop_loss", "Estimated crop loss", "money"], ["damage_description", "Damage description", "textarea"]],
+      FLOOD: [["crop_type", "Crop type", "text"], ["cultivated_area", "Cultivated/affected area", "number"], ["area_affected", "Area affected", "number"], ["waterlogging", "Waterlogging", "severity"], ["waterlogging_duration", "Duration of waterlogging", "text"], ["crop_damage_severity", "Crop damage severity", "severity"], ["irrigation_damage", "Irrigation damage", "severity"], ["soil_land_damage", "Soil/land damage", "severity"], ["estimated_crop_loss", "Estimated crop loss", "money"], ["damage_description", "Damage description", "textarea"]],
+      DROUGHT: [["crop_type", "Crop type", "text"], ["cultivated_area", "Cultivated area", "number"], ["area_affected", "Affected area", "number"], ["crop_damage_severity", "Crop damage severity", "severity"], ["irrigation_availability_damage", "Irrigation availability/damage", "severity"], ["estimated_crop_loss", "Estimated crop loss", "money"], ["damage_description", "Damage description", "textarea"]],
+      DEFAULT: [["crop_type", "Crop type", "text"], ["area_affected", "Affected area", "number"], ["damage_severity", "Damage severity", "severity"], ["estimated_crop_loss", "Estimated crop loss", "money"], ["damage_description", "Damage description", "textarea"]],
+    },
+    COMMERCIAL: {
+      FIRE: [["building_structural_damage", "Building/structural damage", "severity"], ["roof_wall_damage", "Roof/wall damage", "severity"], ["equipment_damage", "Equipment/machinery damage", "severity"], ["inventory_damage", "Inventory/stock damage", "severity"], ["electrical_damage", "Electrical damage", "severity"], ["smoke_fire_damage", "Smoke/fire damage", "severity"], ["estimated_business_loss", "Estimated business/property loss", "money"]],
+      FLOOD: [["building_damage", "Building damage", "severity"], ["water_level", "Water level", "text"], ["equipment_damage", "Equipment/machinery damage", "severity"], ["inventory_damage", "Inventory/stock damage", "severity"], ["electrical_damage", "Electrical damage", "severity"], ["estimated_loss", "Estimated loss", "money"]],
+      DEFAULT: [["structural_damage", "Structural damage", "severity"], ["equipment_damage", "Equipment damage", "severity"], ["inventory_damage", "Inventory damage", "severity"], ["estimated_loss", "Estimated loss", "money"], ["damage_description", "Damage description", "textarea"]],
+    },
+    INFRASTRUCTURE: {
+      FLOOD: [["infrastructure_type", "Infrastructure type", "text"], ["structural_damage", "Structural damage", "severity"], ["road_bridge_blockage", "Road/bridge blockage", "severity"], ["water_damage", "Water damage", "severity"], ["utility_damage", "Utility damage", "severity"], ["accessibility_impact", "Accessibility impact", "severity"], ["affected_area", "Affected area", "number"], ["estimated_repair_loss", "Estimated repair/loss", "money"]],
+      FIRE: [["infrastructure_type", "Infrastructure type", "text"], ["structural_damage", "Structural damage", "severity"], ["fire_damage_severity", "Fire damage severity", "severity"], ["utility_damage", "Utility damage", "severity"], ["accessibility_impact", "Accessibility impact", "severity"], ["estimated_repair_loss", "Estimated repair/loss", "money"]],
+      EARTHQUAKE: [["infrastructure_type", "Infrastructure type", "text"], ["structural_damage", "Structural damage", "severity"], ["road_bridge_damage", "Road/bridge damage", "severity"], ["utility_damage", "Utility damage", "severity"], ["accessibility_impact", "Accessibility impact", "severity"], ["estimated_repair_loss", "Estimated repair/loss", "money"]],
+      DEFAULT: [["infrastructure_type", "Infrastructure type", "text"], ["damage_severity", "Damage severity", "severity"], ["damage_description", "Damage description", "textarea"], ["estimated_repair_loss", "Estimated repair/loss", "money"]],
+    },
+    LIVESTOCK: {
+      FIRE: [["livestock_type", "Livestock type", "text"], ["number_affected", "Number affected", "number"], ["number_injured_lost", "Number injured/lost", "number"], ["shelter_damage", "Shelter damage", "severity"], ["feed_water_damage", "Feed/water damage", "severity"], ["estimated_loss", "Estimated loss", "money"]],
+      FLOOD: [["livestock_type", "Livestock type", "text"], ["number_affected", "Number affected", "number"], ["number_injured_lost", "Number injured/lost", "number"], ["shelter_damage", "Shelter damage", "severity"], ["feed_water_damage", "Feed/water damage", "severity"], ["estimated_loss", "Estimated loss", "money"]],
+      DEFAULT: [["livestock_type", "Livestock type", "text"], ["number_affected", "Number affected", "number"], ["damage_description", "Damage description", "textarea"], ["estimated_loss", "Estimated loss", "money"]],
+    },
+    OTHER: { DEFAULT: [["damage_severity", "Damage severity", "severity"], ["damage_description", "Damage description", "textarea"], ["estimated_loss", "Estimated loss", "money"]] },
+  };
+
+  function selectedQuestions() {
+    var category = form.damage_category.value || "OTHER";
+    var disaster = form.disaster_type.value || "OTHER";
+    var group = QUESTIONS[category] || QUESTIONS.OTHER;
+    return group[disaster] || group.DEFAULT;
+  }
+
+  function renderDamageQuestions() {
+    var category = form.damage_category.value;
+    var disaster = form.disaster_type.value;
+    var categoryLabel = form.damage_category.options[form.damage_category.selectedIndex].text;
+    var disasterLabel = form.disaster_type.options[form.disaster_type.selectedIndex].text;
+    document.getElementById("assessment-context").textContent = category && disaster
+      ? disasterLabel + " · " + categoryLabel + " claim"
+      : "Select a disaster and property type above.";
+    document.getElementById("damage-questions").innerHTML = selectedQuestions().map(function (question) {
+      var key = question[0], label = question[1], type = question[2];
+      if (type === "severity") {
+        return '<div class="field"><label for="detail-' + key + '">' + label + '</label><select id="detail-' + key + '" data-detail="' + key + '">' +
+          SEVERITIES.map(function (option) { return '<option value="' + option[0] + '">' + option[1] + '</option>'; }).join("") + '</select></div>';
+      }
+      if (type === "textarea") return '<div class="field"><label for="detail-' + key + '">' + label + '</label><textarea id="detail-' + key + '" data-detail="' + key + '" rows="3"></textarea></div>';
+      return '<div class="field"><label for="detail-' + key + '">' + label + '</label><input type="' + (type === "money" ? "number" : type) + '" id="detail-' + key + '" data-detail="' + key + '" min="0" step="' + (type === "number" ? "0.01" : "100") + '"></div>';
+    }).join("");
+  }
+
+  form.disaster_type.addEventListener("change", renderDamageQuestions);
+  form.damage_category.addEventListener("change", renderDamageQuestions);
+  renderDamageQuestions();
+
   /* ------------------------------------------------------- Location */
   function setLocationStatus(text, kind) {
     var node = document.getElementById("location-status");
@@ -235,24 +301,31 @@
   /* --------------------------------------------- Live severity preview */
   var previewTimer = null;
   function indicators() {
+    var details = collectDamageDetails();
     return {
+      disaster_type: form.disaster_type.value,
+      damage_category: form.damage_category.value,
+      damage_details: details,
       people_trapped: form.people_trapped.checked,
       medical_assistance_needed: form.medical_assistance_needed.checked,
-      roof_collapsed: form.roof_collapsed.checked,
       exposed_live_wires: form.exposed_live_wires.checked,
-      major_structural_damage: form.major_structural_damage.checked,
-      wall_damage: form.wall_damage.checked,
-      standing_water: form.standing_water.checked,
-      road_blocked: form.road_blocked.checked,
       people_affected: Number(form.people_affected.value || 0),
     };
   }
 
+  function collectDamageDetails() {
+    var details = { other_safety_hazard: form.other_safety_hazard.checked };
+    document.querySelectorAll("[data-detail]").forEach(function (element) {
+      details[element.dataset.detail] = element.type === "number"
+        ? Number(element.value || 0) : element.value;
+    });
+    return details;
+  }
+
   function refreshSeverity() {
     var values = indicators();
-    var anything = Object.keys(values).some(function (key) { return values[key]; });
     var panel = document.getElementById("severity-preview");
-    if (!anything) { panel.hidden = true; return; }
+    if (!values.disaster_type || !values.damage_category) { panel.hidden = true; return; }
 
     api.reports.triagePreview(values).then(function (result) {
       panel.hidden = false;
@@ -268,7 +341,15 @@
   }
 
   form.addEventListener("change", function (event) {
-    if (event.target.type === "checkbox" || event.target.name === "people_affected") {
+    if (event.target.type === "checkbox" || event.target.name === "people_affected" ||
+      event.target.dataset.detail || event.target === form.disaster_type ||
+      event.target === form.damage_category) {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(refreshSeverity, 250);
+    }
+  });
+  form.addEventListener("input", function (event) {
+    if (event.target.dataset.detail || event.target.name === "people_affected") {
       clearTimeout(previewTimer);
       previewTimer = setTimeout(refreshSeverity, 250);
     }
@@ -331,6 +412,7 @@
   /* ---------------------------------------------------------- Payload */
   function buildPayload(submitNow) {
     var data = ui.formData(form);
+    data.damage_details = collectDamageDetails();
     data.submit_now = submitNow;
     data.idempotency_key = offline.newIdempotencyKey();
     data.client_created_at = new Date().toISOString();

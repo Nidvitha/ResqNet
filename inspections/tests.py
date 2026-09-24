@@ -202,6 +202,45 @@ class InspectionAPITests(APITestCase):
         inspection.refresh_from_db()
         self.assertEqual(inspection.status, InspectionStatus.STARTED)
 
+    def test_category_specific_findings_are_saved_and_validated(self):
+        agricultural = make_report(
+            make_citizen(username="farmer", district="Kollam"),
+            damage_category="AGRICULTURAL",
+        )
+        assignment = agricultural.assignments.first()
+        self.client.force_authenticate(assignment.officer)
+        response = self.client.post(
+            reverse("inspections:start"),
+            {"assignment_id": assignment.pk},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        inspection_id = response.data["id"]
+
+        response = self.client.patch(
+            reverse("inspections:inspection-detail", args=[inspection_id]),
+            {
+                "category_data": {
+                    "crop_type": "Rice",
+                    "area_affected": 2.5,
+                    "crop_damage_severity": "SEVERE",
+                    "waterlogging_damage": "MODERATE",
+                    "irrigation_equipment_damage": "MINOR",
+                    "estimated_crop_loss": 75000,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["category_data"]["crop_type"], "Rice")
+
+        response = self.client.patch(
+            reverse("inspections:inspection-detail", args=[inspection_id]),
+            {"category_data": {"area_affected": -1}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_citizen_can_read_but_not_write_their_own_inspection(self):
         inspection = start_inspection(assignment=self.assignment, user=self.assignment.officer)
         self.client.force_authenticate(self.citizen)

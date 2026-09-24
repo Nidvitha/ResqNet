@@ -5,7 +5,38 @@ from rest_framework import serializers
 
 from reports.validators import validate_image_upload
 
-from .models import Inspection, InspectionPhoto
+from .models import DamageSeverity, Inspection, InspectionPhoto
+
+
+CATEGORY_DATA_FIELDS = {
+    "COMMERCIAL": {
+        "building_damage", "roof_damage", "equipment_damage", "inventory_damage",
+        "electrical_damage", "water_fire_damage",
+    },
+    "AGRICULTURAL": {
+        "crop_type", "area_affected", "crop_damage_severity", "waterlogging_damage",
+        "irrigation_equipment_damage", "estimated_crop_loss",
+    },
+    "INFRASTRUCTURE": {
+        "infrastructure_type", "structural_damage_severity", "access_damage",
+        "utility_damage", "affected_area",
+    },
+    "LIVESTOCK": {
+        "livestock_type", "number_affected", "number_lost_injured", "shelter_damage",
+        "feed_water_damage", "estimated_loss",
+    },
+    "OTHER": {"damage_description", "damage_severity", "estimated_loss"},
+}
+
+SEVERITY_DATA_FIELDS = {
+    "roof_damage", "building_damage", "crop_damage_severity", "waterlogging_damage",
+    "irrigation_equipment_damage", "structural_damage_severity", "access_damage",
+    "utility_damage", "shelter_damage", "feed_water_damage", "damage_severity",
+}
+NUMERIC_DATA_FIELDS = {
+    "area_affected", "estimated_crop_loss", "affected_area", "number_affected",
+    "number_lost_injured", "estimated_loss",
+}
 
 
 class InspectionPhotoSerializer(serializers.ModelSerializer):
@@ -51,6 +82,7 @@ class InspectionSerializer(serializers.ModelSerializer):
             "officer", "officer_name", "status", "status_display",
             "structural_damage", "roof_damage", "wall_damage", "foundation_damage",
             "electrical_damage", "water_damage", "household_damage",
+            "category_data",
             "people_affected", "is_habitable", "requires_immediate_relief",
             "estimated_damage_value", "remarks",
             "inspection_latitude", "inspection_longitude",
@@ -78,6 +110,7 @@ class InspectionUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "structural_damage", "roof_damage", "wall_damage", "foundation_damage",
             "electrical_damage", "water_damage", "household_damage",
+            "category_data",
             "people_affected", "is_habitable", "requires_immediate_relief",
             "estimated_damage_value", "remarks",
             "inspection_latitude", "inspection_longitude",
@@ -96,6 +129,36 @@ class InspectionUpdateSerializer(serializers.ModelSerializer):
     def validate_remarks(self, value):
         if len(value) > 5000:
             raise serializers.ValidationError("Remarks are limited to 5000 characters.")
+        return value
+
+    def validate_category_data(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Category-specific findings must be an object.")
+
+        report = getattr(getattr(self, "instance", None), "report", None)
+        category = getattr(report, "damage_category", None) or self.context.get("category")
+        allowed = CATEGORY_DATA_FIELDS.get(category, set())
+        unknown = set(value) - allowed
+        if unknown:
+            raise serializers.ValidationError(
+                f"Unsupported fields for {category or 'this'} property: {', '.join(sorted(unknown))}."
+            )
+
+        valid_severities = {choice.value for choice in DamageSeverity}
+        for field in SEVERITY_DATA_FIELDS.intersection(value):
+            if value[field] not in valid_severities:
+                raise serializers.ValidationError({field: "Choose a valid damage severity."})
+
+        for field in NUMERIC_DATA_FIELDS.intersection(value):
+            try:
+                number = float(value[field])
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({field: "Enter a valid number."}) from None
+            if number < 0:
+                raise serializers.ValidationError({field: "Value cannot be negative."})
+            if field in {"number_affected", "number_lost_injured"} and number != int(number):
+                raise serializers.ValidationError({field: "Enter a whole number."})
+
         return value
 
 

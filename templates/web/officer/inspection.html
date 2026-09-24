@@ -23,131 +23,376 @@
   .severity-row:last-child { border-bottom: 0; }
   .severity-row label { font-weight: 600; margin: 0; }
   .severity-row select { max-width: 220px; min-height: 44px; }
+
   .case-banner {
     background: linear-gradient(135deg, var(--navy-900), var(--navy-700));
-    color: #fff; border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1.5rem;
+    color: #fff;
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
   }
-  .case-banner h1 { color: #fff; margin-bottom: .25rem; }
-  .case-banner .meta { display: flex; gap: 1.5rem; flex-wrap: wrap; color: var(--slate-300); font-size: .9rem; margin-top: .75rem; }
-  .case-banner a { color: #fff; }
+
+  .case-banner h1 {
+    color: #fff;
+    margin-bottom: .25rem;
+  }
+
+  .case-banner .meta {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    color: var(--slate-300);
+    font-size: .9rem;
+    margin-top: .75rem;
+  }
+
+  .case-banner a {
+    color: #fff;
+  }
+
   .estimate {
-    background: var(--teal-50); border: 1px solid #99f6e4; border-radius: var(--radius);
-    padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+    background: var(--teal-50);
+    border: 1px solid #99f6e4;
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
   }
-  .estimate .amount { font-size: 1.5rem; font-weight: 800; color: var(--teal-700); }
-  .photo-previews { display: grid; grid-template-columns: repeat(auto-fill,minmax(110px,1fr)); gap: .6rem; margin-top: .75rem; }
-  .photo-previews img { border-radius: var(--radius); border: 1px solid var(--border); aspect-ratio: 4/3; object-fit: cover; width: 100%; }
+
+  .estimate .amount {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--teal-700);
+  }
+
+  .photo-previews {
+    display: grid;
+    grid-template-columns: repeat(auto-fill,minmax(110px,1fr));
+    gap: .6rem;
+    margin-top: .75rem;
+  }
+
+  .photo-previews img {
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    width: 100%;
+  }
+
+  /* ------------------------------------------------ Citizen evidence */
+
+  .citizen-evidence {
+    margin-bottom: 1.5rem;
+  }
+
+  .citizen-evidence-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: .75rem;
+    margin-top: 1rem;
+  }
+
+  .citizen-evidence-card {
+    background: var(--slate-50);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .5rem;
+  }
+
+  .citizen-evidence-card img {
+    width: 100%;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    border-radius: .5rem;
+    display: block;
+    cursor: pointer;
+  }
+
+  .citizen-evidence-card .caption {
+    font-size: .8rem;
+    color: var(--slate-500);
+    margin-top: .4rem;
+  }
+
+  .citizen-evidence-empty {
+    color: var(--slate-500);
+    margin: .75rem 0 0;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="container-narrow">
-    <a class="btn btn-sm btn-ghost mb-2" href="{% url 'web:officer_dashboard' %}">← My assignments</a>
+
+    <a class="btn btn-sm btn-ghost mb-2"
+       href="{% url 'web:officer_dashboard' %}">
+      ← My assignments
+    </a>
 
     <div id="alert"></div>
     <div id="case-banner"></div>
 
     <form id="inspection-form" hidden>
 
+      <!-- ------------------------------------------- Citizen evidence -->
+
+      <div class="card mb-2 citizen-evidence">
+        <fieldset>
+          <legend>Citizen Submitted Evidence</legend>
+
+          <p class="hint">
+            Photos submitted by the citizen with the original damage claim.
+            These are reference evidence and cannot be modified by the officer.
+          </p>
+
+          <div id="citizen-evidence-grid"
+               class="citizen-evidence-grid">
+          </div>
+
+          <p id="citizen-evidence-empty"
+             class="citizen-evidence-empty"
+             hidden>
+            No photos were submitted by the citizen.
+          </p>
+        </fieldset>
+      </div>
+
+
       <!-- --------------------------------------------- Damage checklist -->
+
       <div class="card mb-2">
         <fieldset>
+
           <legend>Verified damage assessment</legend>
-          <p class="hint" style="margin-top:-.5rem;margin-bottom:1rem">
+
+          <p class="hint"
+             style="margin-top:-.5rem;margin-bottom:1rem">
             Grade what you can see on site. This — not the citizen's original report —
             is what the compensation calculation uses.
           </p>
 
-          <div id="severity-fields"></div>
+          <div id="category-fields"></div>
+
         </fieldset>
       </div>
 
+
       <!-- ---------------------------------------------------- Situation -->
+
       <div class="card mb-2">
         <fieldset>
+
           <legend>Situation</legend>
 
           <div class="field">
-            <label for="people_affected">People affected (verified count)</label>
-            <input type="number" id="people_affected" name="people_affected" min="0" max="10000"
-                   value="0" style="max-width:180px">
+            <label for="people_affected">
+              People affected (verified count)
+            </label>
+
+            <input
+              type="number"
+              id="people_affected"
+              name="people_affected"
+              min="0"
+              max="10000"
+              value="0"
+              style="max-width:180px">
           </div>
 
           <div class="check-grid mb-2">
-            <label class="check"><input type="checkbox" name="is_habitable" checked> Property is safe to occupy</label>
-            <label class="check"><input type="checkbox" name="requires_immediate_relief"> Immediate relief required</label>
+
+            <label class="check">
+              <input
+                type="checkbox"
+                name="is_habitable"
+                checked>
+              Property is safe to occupy
+            </label>
+
+            <label class="check">
+              <input
+                type="checkbox"
+                name="requires_immediate_relief">
+              Immediate relief required
+            </label>
+
           </div>
 
           <div class="field">
-            <label for="estimated_damage_value">Your damage estimate (₹)</label>
-            <input type="number" id="estimated_damage_value" name="estimated_damage_value"
-                   min="0" step="1000" value="0" style="max-width:240px">
-            <p class="hint">Advisory only. The relief matrix determines the actual payment.</p>
+
+            <label for="estimated_damage_value">
+              Your damage estimate (₹)
+            </label>
+
+            <input
+              type="number"
+              id="estimated_damage_value"
+              name="estimated_damage_value"
+              min="0"
+              step="1000"
+              value="0"
+              style="max-width:240px">
+
+            <p class="hint">
+              Advisory only. The relief matrix determines the actual payment.
+            </p>
+
           </div>
 
           <div class="field">
-            <label for="remarks">Field remarks</label>
-            <textarea id="remarks" name="remarks" rows="4"
-                      placeholder="What you observed, anything unusual, and anything the reviewer should know."></textarea>
+
+            <label for="remarks">
+              Field remarks
+            </label>
+
+            <textarea
+              id="remarks"
+              name="remarks"
+              rows="4"
+              placeholder="What you observed, anything unusual, and anything the reviewer should know."></textarea>
+
           </div>
+
         </fieldset>
       </div>
+
 
       <!-- ------------------------------------------- Verified photographs -->
+
       <div class="card mb-2">
         <fieldset>
+
           <legend>Verified photographs</legend>
-          <label for="photos" class="btn btn-outline" style="display:inline-flex">Capture / choose photos</label>
-          <input type="file" id="photos" accept="image/*" capture="environment" multiple class="visually-hidden">
-          <p class="hint">Photographs you take on site, distinct from the citizen's own evidence.</p>
-          <div class="photo-previews" id="photo-previews"></div>
+
+          <label
+            for="photos"
+            class="btn btn-outline"
+            style="display:inline-flex">
+            Capture / choose photos
+          </label>
+
+          <input
+            type="file"
+            id="photos"
+            accept="image/*"
+            capture="environment"
+            multiple
+            class="visually-hidden">
+
+          <p class="hint">
+            Photographs you take on site, distinct from the citizen's own evidence.
+          </p>
+
+          <div
+            class="photo-previews"
+            id="photo-previews">
+          </div>
+
         </fieldset>
       </div>
 
+
       <!-- ------------------------------------------- Compensation preview -->
+
       <div class="card mb-2">
+
         <div class="estimate">
+
           <div>
-            <div class="stat-label" style="margin:0">Estimated relief from this assessment</div>
-            <div class="small muted">Subject to administrator review</div>
+            <div
+              class="stat-label"
+              style="margin:0">
+              Estimated relief from this assessment
+            </div>
+
+            <div class="small muted">
+              Subject to administrator review
+            </div>
           </div>
-          <div class="amount" id="estimate-amount">—</div>
+
+          <div
+            class="amount"
+            id="estimate-amount">
+            —
+          </div>
+
         </div>
-        <div id="estimate-lines" class="small muted mt-2"></div>
+
+        <div
+          id="estimate-lines"
+          class="small muted mt-2">
+        </div>
+
       </div>
 
+
       <!-- -------------------------------------------------------- Actions -->
+
       <div class="card">
+
         <div class="field">
-          <label for="signature_name">Sign off — type your full name</label>
-          <input type="text" id="signature_name" name="signature_name"
-                 placeholder="Your full name" value="{{ user.get_full_name }}">
+
+          <label for="signature_name">
+            Sign off — type your full name
+          </label>
+
+          <input
+            type="text"
+            id="signature_name"
+            name="signature_name"
+            placeholder="Your full name"
+            value="{{ user.get_full_name }}">
+
           <p class="hint">
             Signing off finalises this inspection. It cannot be edited afterwards, and
             the compensation calculation runs immediately.
           </p>
+
         </div>
 
-        <button type="button" class="btn btn-primary btn-lg btn-block" id="sign-off">Complete and sign off</button>
-        <button type="button" class="btn btn-outline btn-block mt-2" id="save-progress">Save progress</button>
+        <button
+          type="button"
+          class="btn btn-primary btn-lg btn-block"
+          id="sign-off">
+          Complete and sign off
+        </button>
+
+        <button
+          type="button"
+          class="btn btn-outline btn-block mt-2"
+          id="save-progress">
+          Save progress
+        </button>
+
       </div>
+
     </form>
+
   </div>
 </div>
 {% endblock %}
 
+
 {% block scripts %}
 <script>
 (function () {
+
   "use strict";
 
   var assignmentId = {{ assignment_id }};
   var inspection = null;
   var caseData = null;
+  var currentCategory = "RESIDENTIAL";
   var photos = [];
 
-  var SEVERITY_FIELDS = [
+
+  /* ------------------------------------------------ Damage fields */
+
+  var RESIDENTIAL_FIELDS = [
     ["structural_damage", "Structural damage"],
     ["roof_damage", "Roof damage"],
     ["wall_damage", "Wall damage"],
@@ -157,271 +402,948 @@
     ["household_damage", "Household damage (contents)"],
   ];
 
+  var CATEGORY_FIELDS = {
+    COMMERCIAL: [
+      ["building_damage", "Structural/building damage", "severity"],
+      ["roof_damage", "Roof damage", "severity"],
+      ["equipment_damage", "Equipment/machinery damage", "severity"],
+      ["inventory_damage", "Inventory/stock damage", "severity"],
+      ["electrical_damage", "Electrical damage", "severity"],
+      ["water_fire_damage", "Water/fire damage", "severity"],
+    ],
+    AGRICULTURAL: [
+      ["crop_type", "Crop type", "text"],
+      ["area_affected", "Area affected", "number", "0", "0.01", "acres"],
+      ["crop_damage_severity", "Crop damage severity", "severity"],
+      ["waterlogging_damage", "Waterlogging/flood damage", "severity"],
+      ["irrigation_equipment_damage", "Irrigation/equipment damage", "severity"],
+      ["estimated_crop_loss", "Estimated crop loss", "number", "0", "0.01", "₹"],
+    ],
+    INFRASTRUCTURE: [
+      ["infrastructure_type", "Infrastructure type", "text"],
+      ["structural_damage_severity", "Structural damage severity", "severity"],
+      ["access_damage", "Road/bridge/accessibility damage", "severity"],
+      ["utility_damage", "Utility damage", "severity"],
+      ["affected_area", "Affected area", "number", "0", "0.01", "sq. units"],
+    ],
+    LIVESTOCK: [
+      ["livestock_type", "Livestock type", "text"],
+      ["number_affected", "Number affected", "number", "0", "1"],
+      ["number_lost_injured", "Number lost/injured", "number", "0", "1"],
+      ["shelter_damage", "Livestock shelter damage", "severity"],
+      ["feed_water_damage", "Feed/water damage", "severity"],
+      ["estimated_loss", "Estimated loss", "number", "0", "0.01", "₹"],
+    ],
+    OTHER: [
+      ["damage_description", "Damage description", "textarea"],
+      ["damage_severity", "Damage severity", "severity"],
+      ["estimated_loss", "Estimated loss", "number", "0", "0.01", "₹"],
+    ],
+  };
+
+
   var SEVERITY_OPTIONS = [
-    ["NONE", "No damage"], ["MINOR", "Minor"], ["MODERATE", "Moderate"],
-    ["SEVERE", "Severe"], ["DESTROYED", "Completely destroyed"],
+    ["NONE", "No damage"],
+    ["MINOR", "Minor"],
+    ["MODERATE", "Moderate"],
+    ["SEVERE", "Severe"],
+    ["DESTROYED", "Completely destroyed"],
   ];
 
-  function buildSeverityFields() {
-    document.getElementById("severity-fields").innerHTML = SEVERITY_FIELDS.map(function (pair) {
-      return '<div class="severity-row">' +
-        '<label for="' + pair[0] + '">' + pair[1] + "</label>" +
-        '<select id="' + pair[0] + '" name="' + pair[0] + '">' +
-          SEVERITY_OPTIONS.map(function (option) {
-            return '<option value="' + option[0] + '">' + option[1] + "</option>";
-          }).join("") +
-        "</select></div>";
-    }).join("");
+
+  function buildCategoryFields(category) {
+    currentCategory = category || "OTHER";
+    var fields = currentCategory === "RESIDENTIAL"
+      ? RESIDENTIAL_FIELDS.map(function (pair) { return [pair[0], pair[1], "severity"]; })
+      : (CATEGORY_FIELDS[currentCategory] || CATEGORY_FIELDS.OTHER);
+
+    document.getElementById("category-fields").innerHTML =
+      fields.map(function (field) {
+        var name = field[0];
+        var label = field[1];
+        var type = field[2];
+        if (type === "severity") {
+          return '<div class="severity-row"><label for="' + name + '">' + label +
+            '</label><select id="' + name + '" name="' + name + '">' +
+            SEVERITY_OPTIONS.map(function (option) {
+              return '<option value="' + option[0] + '">' + option[1] + '</option>';
+            }).join("") + "</select></div>";
+        }
+        if (type === "textarea") {
+          return '<div class="field"><label for="' + name + '">' + label +
+            '</label><textarea id="' + name + '" rows="3"></textarea></div>';
+        }
+        return '<div class="field"><label for="' + name + '">' + label + '</label>' +
+          '<input type="' + type + '" id="' + name + '" min="' + (field[3] || "") +
+          '" step="' + (field[4] || "") + '">' +
+          (field[5] ? '<p class="hint">' + field[5] + '</p>' : "") + '</div>';
+      }).join("");
   }
 
+
+  /* ------------------------------------------------ Case banner */
+
   function renderBanner(report) {
+
     document.getElementById("case-banner").innerHTML =
+
       '<div class="case-banner">' +
-        '<span class="ref">' + ui.esc(report.reference) + "</span>" +
-        "<h1>" + ui.esc(report.disaster_type || report.disaster_type_display || "Damage") + "</h1>" +
-        '<p style="color:var(--slate-300);margin:0">' + ui.esc(report.description || "") + "</p>" +
+
+        '<span class="ref">' +
+        ui.esc(report.reference) +
+        "</span>" +
+
+        "<h1>" +
+        ui.esc(
+          report.disaster_type ||
+          report.disaster_type_display ||
+          "Damage"
+        ) +
+        "</h1>" +
+
+        '<p style="color:var(--slate-300);margin:0">' +
+        ui.esc(report.description || "") +
+        "</p>" +
+
         '<div class="meta">' +
-          "<span>" + ui.esc(report.address || report.district || "") + "</span>" +
-          "<span>Score " + (report.priority_score || 0) + " · " + ui.esc(report.triage_level || "") + "</span>" +
-          (report.citizen_phone ? '<span><a href="tel:' + ui.esc(report.citizen_phone) + '">' +
-            ui.esc(report.citizen_phone) + "</a></span>" : "") +
+
+          "<span>" +
+          ui.esc(report.address || report.district || "") +
+          "</span>" +
+
+          "<span>Score " +
+          (report.priority_score || 0) +
+          " · " +
+          ui.esc(report.triage_level || "") +
+          "</span>" +
+
+          (
+            report.citizen_phone
+              ? '<span><a href="tel:' +
+                ui.esc(report.citizen_phone) +
+                '">' +
+                ui.esc(report.citizen_phone) +
+                "</a></span>"
+              : ""
+          ) +
+
           '<span><a target="_blank" rel="noopener" href="https://www.openstreetmap.org/?mlat=' +
-            report.latitude + "&mlon=" + report.longitude + '">Open in map</a></span>' +
+          report.latitude +
+          "&mlon=" +
+          report.longitude +
+          '">Open in map</a></span>' +
+
         "</div>" +
+
       "</div>";
   }
 
-  function populate(data) {
-    SEVERITY_FIELDS.forEach(function (pair) {
-      var field = document.getElementById(pair[0]);
-      if (field && data[pair[0]]) field.value = data[pair[0]];
+
+  /* ------------------------------------------------ Citizen photos */
+
+  function renderCitizenEvidence(report) {
+
+    var grid = document.getElementById("citizen-evidence-grid");
+    var empty = document.getElementById("citizen-evidence-empty");
+
+    grid.innerHTML = "";
+    empty.hidden = true;
+
+    if (!report || !report.photos || !report.photos.length) {
+      empty.hidden = false;
+      return;
+    }
+
+    report.photos.forEach(function (photo, index) {
+
+      if (!photo.image_url) {
+        return;
+      }
+
+      var card = document.createElement("div");
+      card.className = "citizen-evidence-card";
+
+      var img = document.createElement("img");
+
+      img.src = photo.image_url;
+      img.alt = "Citizen submitted evidence " + (index + 1);
+      img.title = "Open image";
+
+      img.addEventListener("click", function () {
+        window.open(photo.image_url, "_blank", "noopener");
+      });
+
+      card.appendChild(img);
+
+      if (photo.caption) {
+
+        var caption = document.createElement("div");
+
+        caption.className = "caption";
+        caption.textContent = photo.caption;
+
+        card.appendChild(caption);
+      }
+
+      grid.appendChild(card);
+
     });
-    var form = document.getElementById("inspection-form");
-    form.people_affected.value = data.people_affected || 0;
-    form.is_habitable.checked = data.is_habitable !== false;
-    form.requires_immediate_relief.checked = !!data.requires_immediate_relief;
-    form.estimated_damage_value.value = data.estimated_damage_value || 0;
-    form.remarks.value = data.remarks || "";
+
+    if (!grid.children.length) {
+      empty.hidden = false;
+    }
   }
 
-  function collect() {
+
+  /* ------------------------------------------------ Populate */
+
+  function populate(data) {
+
+    if (currentCategory === "RESIDENTIAL") {
+      RESIDENTIAL_FIELDS.forEach(function (pair) {
+
+      var field = document.getElementById(pair[0]);
+
+      if (field && data[pair[0]]) {
+        field.value = data[pair[0]];
+      }
+
+      });
+    } else {
+      var categoryData = data.category_data || {};
+      (CATEGORY_FIELDS[currentCategory] || CATEGORY_FIELDS.OTHER).forEach(function (field) {
+        var element = document.getElementById(field[0]);
+        if (element && categoryData[field[0]] !== undefined) {
+          element.value = categoryData[field[0]];
+        }
+      });
+    }
+
+
     var form = document.getElementById("inspection-form");
+
+    form.people_affected.value =
+      data.people_affected || 0;
+
+    form.is_habitable.checked =
+      data.is_habitable !== false;
+
+    form.requires_immediate_relief.checked =
+      !!data.requires_immediate_relief;
+
+    form.estimated_damage_value.value =
+      data.estimated_damage_value || 0;
+
+    form.remarks.value =
+      data.remarks || "";
+  }
+
+
+  /* ------------------------------------------------ Collect */
+
+  function collect() {
+
+    var form =
+      document.getElementById("inspection-form");
+
     var payload = {
-      people_affected: Number(form.people_affected.value || 0),
-      is_habitable: form.is_habitable.checked,
-      requires_immediate_relief: form.requires_immediate_relief.checked,
-      estimated_damage_value: Number(form.estimated_damage_value.value || 0),
-      remarks: form.remarks.value,
+
+      people_affected:
+        Number(form.people_affected.value || 0),
+
+      is_habitable:
+        form.is_habitable.checked,
+
+      requires_immediate_relief:
+        form.requires_immediate_relief.checked,
+
+      estimated_damage_value:
+        Number(form.estimated_damage_value.value || 0),
+
+      remarks:
+        form.remarks.value,
+
     };
-    SEVERITY_FIELDS.forEach(function (pair) {
-      payload[pair[0]] = document.getElementById(pair[0]).value;
-    });
+
+
+    if (currentCategory === "RESIDENTIAL") {
+      RESIDENTIAL_FIELDS.forEach(function (pair) {
+
+      payload[pair[0]] =
+        document.getElementById(pair[0]).value;
+
+      });
+    } else {
+      payload.category_data = {};
+      (CATEGORY_FIELDS[currentCategory] || CATEGORY_FIELDS.OTHER).forEach(function (field) {
+        var element = document.getElementById(field[0]);
+        payload.category_data[field[0]] = field[2] === "number"
+          ? Number(element.value || 0)
+          : element.value;
+      });
+    }
+
+
     return payload;
   }
 
+
   /* --------------------------------------------- Compensation preview */
+
   var estimateTimer = null;
+
+
   function refreshEstimate() {
-    if (!inspection) return;
+
+    if (!inspection) {
+      return;
+    }
+
     clearTimeout(estimateTimer);
+
     estimateTimer = setTimeout(function () {
-      api.inspections.save(inspection.id, collect())
-        .then(function () { return api.inspections.compensationPreview(inspection.id); })
-        .then(function (preview) {
-          document.getElementById("estimate-amount").textContent = ui.money(preview.total);
-          document.getElementById("estimate-lines").innerHTML = preview.items.length
-            ? preview.items.map(function (item) {
-                return ui.esc(item.label) + " — " + ui.money(item.amount);
-              }).join(" · ")
-            : "No qualifying damage recorded yet.";
-        })
-        .catch(function () {
-          // Offline: no live estimate. The assessment still saves locally on sign-off.
-          document.getElementById("estimate-amount").textContent = "—";
-          document.getElementById("estimate-lines").textContent =
-            "Estimate unavailable offline. Your assessment will still be saved and sent.";
-        });
+
+      api.inspections.save(
+        inspection.id,
+        collect()
+      )
+
+      .then(function () {
+        return api.inspections.compensationPreview(
+          inspection.id
+        );
+      })
+
+      .then(function (preview) {
+
+        document.getElementById(
+          "estimate-amount"
+        ).textContent = ui.money(preview.total);
+
+        document.getElementById(
+          "estimate-lines"
+        ).innerHTML = preview.items.length
+
+          ? preview.items.map(function (item) {
+
+              return ui.esc(item.label) +
+                " — " +
+                ui.money(item.amount);
+
+            }).join(" · ")
+
+          : "No qualifying damage recorded yet.";
+
+      })
+
+      .catch(function () {
+
+        document.getElementById(
+          "estimate-amount"
+        ).textContent = "—";
+
+        document.getElementById(
+          "estimate-lines"
+        ).textContent =
+          "Estimate unavailable offline. Your assessment will still be saved and sent.";
+
+      });
+
     }, 600);
   }
 
+
   /* ------------------------------------------------- Photo compression */
-  function compress(file, maxDimension, quality) {
+
+  function compress(
+    file,
+    maxDimension,
+    quality
+  ) {
+
     return new Promise(function (resolve) {
+
       var reader = new FileReader();
+
       reader.onload = function (event) {
+
         var image = new Image();
+
         image.onload = function () {
-          var scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
-          var canvas = document.createElement("canvas");
-          canvas.width = Math.round(image.width * scale);
-          canvas.height = Math.round(image.height * scale);
-          canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+
+          var scale = Math.min(
+            1,
+            maxDimension /
+              Math.max(
+                image.width,
+                image.height
+              )
+          );
+
+          var canvas =
+            document.createElement("canvas");
+
+          canvas.width =
+            Math.round(
+              image.width * scale
+            );
+
+          canvas.height =
+            Math.round(
+              image.height * scale
+            );
+
+          canvas
+            .getContext("2d")
+            .drawImage(
+              image,
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+
           canvas.toBlob(function (blob) {
-            resolve(blob ? new File([blob], "inspection.jpg", { type: "image/jpeg" }) : file);
+
+            resolve(
+              blob
+                ? new File(
+                    [blob],
+                    "inspection.jpg",
+                    { type: "image/jpeg" }
+                  )
+                : file
+            );
+
           }, "image/jpeg", quality);
+
         };
-        image.onerror = function () { resolve(file); };
+
+        image.onerror = function () {
+          resolve(file);
+        };
+
         image.src = event.target.result;
+
       };
+
       reader.readAsDataURL(file);
+
     });
   }
 
-  document.getElementById("photos").addEventListener("change", async function (event) {
-    var files = Array.prototype.slice.call(event.target.files).slice(0, 8);
-    var previews = document.getElementById("photo-previews");
-    previews.innerHTML = "";
-    photos = [];
 
-    for (var i = 0; i < files.length; i++) {
-      var smaller = await compress(files[i], 1600, 0.75);
-      photos.push(smaller);
-      var img = document.createElement("img");
-      img.src = URL.createObjectURL(smaller);
-      img.alt = "Inspection photograph " + (i + 1);
-      previews.appendChild(img);
-    }
-  });
+  document
+    .getElementById("photos")
+    .addEventListener("change", async function (event) {
+
+      var files =
+        Array.prototype
+          .slice
+          .call(event.target.files)
+          .slice(0, 8);
+
+      var previews =
+        document.getElementById(
+          "photo-previews"
+        );
+
+      previews.innerHTML = "";
+
+      photos = [];
+
+
+      for (
+        var i = 0;
+        i < files.length;
+        i++
+      ) {
+
+        var smaller =
+          await compress(
+            files[i],
+            1600,
+            0.75
+          );
+
+        photos.push(smaller);
+
+        var img =
+          document.createElement("img");
+
+        img.src =
+          URL.createObjectURL(smaller);
+
+        img.alt =
+          "Inspection photograph " +
+          (i + 1);
+
+        previews.appendChild(img);
+
+      }
+
+    });
+
 
   async function uploadPhotos() {
-    for (var i = 0; i < photos.length; i++) {
-      var formData = new FormData();
-      formData.append("image", photos[i]);
-      try { await api.inspections.uploadPhoto(inspection.id, formData); }
-      catch (e) { /* a failed photo must not block sign-off */ }
+
+    for (
+      var i = 0;
+      i < photos.length;
+      i++
+    ) {
+
+      var formData =
+        new FormData();
+
+      formData.append(
+        "image",
+        photos[i]
+      );
+
+      try {
+
+        await api.inspections.uploadPhoto(
+          inspection.id,
+          formData
+        );
+
+      } catch (e) {
+
+        /* a failed photo must not block sign-off */
+
+      }
+
     }
+
   }
+
 
   /* ----------------------------------------------------- Queue offline */
-  async function queueOffline(signatureName) {
-    var payload = collect();
-    payload.assignment_id = assignmentId;
-    payload.completed_offline = true;
-    payload.client_completed_at = new Date().toISOString();
-    if (signatureName) payload.signature_name = signatureName;
 
-    await offline.queue.add("inspection", payload);
+  async function queueOffline(signatureName) {
+
+    var payload = collect();
+
+    payload.assignment_id =
+      assignmentId;
+
+    payload.completed_offline =
+      true;
+
+    payload.client_completed_at =
+      new Date().toISOString();
+
+    if (signatureName) {
+      payload.signature_name =
+        signatureName;
+    }
+
+
+    await offline.queue.add(
+      "inspection",
+      payload
+    );
+
     offline.updateBanner();
-    ui.flash("#alert", "warning",
+
+    ui.flash(
+      "#alert",
+      "warning",
       "You are offline. This inspection has been saved on your device and will be submitted " +
-      "automatically when you reconnect. You can move on to the next case.");
+      "automatically when you reconnect. You can move on to the next case."
+    );
+
   }
+
 
   /* -------------------------------------------------------- Actions */
-  document.getElementById("save-progress").addEventListener("click", function () {
-    var button = this;
-    ui.setBusy(button, true, "Saving…");
-    ui.clear("#alert");
 
-    if (!inspection) { queueOffline(null).finally(function () { ui.setBusy(button, false); }); return; }
+  document
+    .getElementById("save-progress")
+    .addEventListener(
+      "click",
+      function () {
 
-    api.inspections.save(inspection.id, collect())
-      .then(function () { ui.setBusy(button, false); ui.flash("#alert", "success", "Progress saved."); })
-      .catch(function (error) {
-        ui.setBusy(button, false);
-        if (error.isNetworkError) queueOffline(null);
-        else ui.flash("#alert", "error", error.message);
-      });
-  });
+        var button = this;
 
-  document.getElementById("sign-off").addEventListener("click", async function () {
-    var button = this;
-    var signature = document.getElementById("signature_name").value.trim();
-    ui.clear("#alert");
+        ui.setBusy(
+          button,
+          true,
+          "Saving…"
+        );
 
-    if (signature.length < 3) {
-      ui.flash("#alert", "error", "Type your full name to sign off this inspection.");
-      return;
-    }
-    if (!confirm("Sign off this inspection?\n\nOnce signed it cannot be edited, and the compensation calculation will run.")) {
-      return;
-    }
-    ui.setBusy(button, true, "Signing off…");
+        ui.clear("#alert");
 
-    try {
-      if (!inspection) throw Object.assign(new Error("offline"), { isNetworkError: true });
 
-      var position = await currentPosition();
-      await api.inspections.save(inspection.id, collect());
-      await uploadPhotos();
-      await api.inspections.complete(inspection.id);
-      await api.inspections.signOff(inspection.id, {
-        signature_name: signature,
-        inspection_latitude: position ? position.latitude : null,
-        inspection_longitude: position ? position.longitude : null,
-      });
+        if (!inspection) {
 
-      ui.flash("#alert", "success",
-        "Inspection signed off. The case has moved to the administrator's approval queue.");
-      setTimeout(function () { window.location.href = "{% url 'web:officer_dashboard' %}"; }, 1600);
-    } catch (error) {
-      ui.setBusy(button, false);
-      if (error.isNetworkError) await queueOffline(signature);
-      else ui.flash("#alert", "error", error.message);
-    }
-  });
+          queueOffline(null)
+            .finally(function () {
+              ui.setBusy(
+                button,
+                false
+              );
+            });
+
+          return;
+        }
+
+
+        api.inspections.save(
+          inspection.id,
+          collect()
+        )
+
+        .then(function () {
+
+          ui.setBusy(
+            button,
+            false
+          );
+
+          ui.flash(
+            "#alert",
+            "success",
+            "Progress saved."
+          );
+
+        })
+
+        .catch(function (error) {
+
+          ui.setBusy(
+            button,
+            false
+          );
+
+          if (error.isNetworkError) {
+            queueOffline(null);
+          } else {
+            ui.flash(
+              "#alert",
+              "error",
+              error.message
+            );
+          }
+
+        });
+
+      }
+    );
+
+
+  document
+    .getElementById("sign-off")
+    .addEventListener(
+      "click",
+      async function () {
+
+        var button = this;
+
+        var signature =
+          document
+            .getElementById(
+              "signature_name"
+            )
+            .value
+            .trim();
+
+        ui.clear("#alert");
+
+
+        if (signature.length < 3) {
+
+          ui.flash(
+            "#alert",
+            "error",
+            "Type your full name to sign off this inspection."
+          );
+
+          return;
+        }
+
+
+        if (
+          !confirm(
+            "Sign off this inspection?\n\nOnce signed it cannot be edited, and the compensation calculation will run."
+          )
+        ) {
+          return;
+        }
+
+
+        ui.setBusy(
+          button,
+          true,
+          "Signing off…"
+        );
+
+
+        try {
+
+          if (!inspection) {
+            throw Object.assign(
+              new Error("offline"),
+              { isNetworkError: true }
+            );
+          }
+
+
+          var position =
+            await currentPosition();
+
+
+          await api.inspections.save(
+            inspection.id,
+            collect()
+          );
+
+
+          await uploadPhotos();
+
+
+          await api.inspections.complete(
+            inspection.id
+          );
+
+
+          await api.inspections.signOff(
+            inspection.id,
+            {
+              signature_name:
+                signature,
+
+              inspection_latitude:
+                position
+                  ? position.latitude
+                  : null,
+
+              inspection_longitude:
+                position
+                  ? position.longitude
+                  : null,
+            }
+          );
+
+
+          ui.flash(
+            "#alert",
+            "success",
+            "Inspection signed off. The case has moved to the administrator's approval queue."
+          );
+
+
+          setTimeout(
+            function () {
+              window.location.href =
+                "{% url 'web:officer_dashboard' %}";
+            },
+            1600
+          );
+
+
+        } catch (error) {
+
+          ui.setBusy(
+            button,
+            false
+          );
+
+          if (error.isNetworkError) {
+
+            await queueOffline(
+              signature
+            );
+
+          } else {
+
+            ui.flash(
+              "#alert",
+              "error",
+              error.message
+            );
+
+          }
+
+        }
+
+      }
+    );
+
+
+  /* ------------------------------------------------ GPS */
 
   function currentPosition() {
+
     return new Promise(function (resolve) {
-      if (!navigator.geolocation) { resolve(null); return; }
+
+      if (!navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+
+
       navigator.geolocation.getCurrentPosition(
+
         function (position) {
+
           resolve({
-            latitude: position.coords.latitude.toFixed(6),
-            longitude: position.coords.longitude.toFixed(6),
+
+            latitude:
+              position.coords.latitude
+                .toFixed(6),
+
+            longitude:
+              position.coords.longitude
+                .toFixed(6),
+
           });
+
         },
-        function () { resolve(null); },
-        { timeout: 6000, maximumAge: 120000 }
+
+        function () {
+          resolve(null);
+        },
+
+        {
+          timeout: 6000,
+          maximumAge: 120000
+        }
+
       );
+
     });
+
   }
 
+
   /* ------------------------------------------------------------ Boot */
-  document.addEventListener("DOMContentLoaded", function () {
-    buildSeverityFields();
 
-    var form = document.getElementById("inspection-form");
-    form.addEventListener("change", refreshEstimate);
+  document.addEventListener(
+    "DOMContentLoaded",
+    function () {
 
-    api.inspections.start(assignmentId).then(function (data) {
-      inspection = data;
-      caseData = data;
-      form.hidden = false;
-      populate(data);
+      var form =
+        document.getElementById(
+          "inspection-form"
+        );
 
-      return api.reports.detail(data.report).then(function (report) {
-        renderBanner(report);
-        // Pre-fill the verified count from the citizen's estimate as a starting point.
-        if (!data.people_affected) form.people_affected.value = report.people_affected || 0;
-        refreshEstimate();
-      });
-    }).catch(function (error) {
-      if (error.isNetworkError) {
-        // Offline: build the page from the cached offline package.
-        offline.cache.get("officer.package").then(function (cached) {
-          var match = cached && cached.data && (cached.data.cases || []).filter(function (row) {
-            return row.assignment_id === assignmentId;
-          })[0];
+      form.addEventListener(
+        "change",
+        refreshEstimate
+      );
 
-          if (match) {
-            renderBanner(match);
-            form.hidden = false;
-            form.people_affected.value = match.reported_indicators.people_affected || 0;
-            ui.flash("#alert", "warning",
-              "You are offline. This case was loaded from your downloaded package. " +
-              "Complete the inspection normally — it will be sent when you reconnect.");
+
+      api.inspections
+        .start(assignmentId)
+
+        .then(function (data) {
+
+          inspection = data;
+          caseData = data;
+
+          form.hidden = false;
+
+          return api.reports
+            .detail(data.report)
+
+            .then(function (report) {
+
+              buildCategoryFields(report.damage_category);
+              populate(data);
+              renderBanner(report);
+
+              /* NEW: show citizen-uploaded photos */
+              renderCitizenEvidence(report);
+
+
+              /* Pre-fill the verified count
+                 from the citizen's estimate */
+              if (!data.people_affected) {
+
+                form.people_affected.value =
+                  report.people_affected || 0;
+
+              }
+
+
+              refreshEstimate();
+
+            });
+
+        })
+
+        .catch(function (error) {
+
+          if (error.isNetworkError) {
+
+            /* Offline: build the page from
+               the cached offline package. */
+
+            offline.cache
+              .get("officer.package")
+
+              .then(function (cached) {
+
+                var match =
+                  cached &&
+                  cached.data &&
+                  (cached.data.cases || [])
+                    .filter(function (row) {
+
+                      return row.assignment_id ===
+                        assignmentId;
+
+                    })[0];
+
+
+                if (match) {
+
+                  buildCategoryFields(match.damage_category);
+                  renderBanner(match);
+
+                  form.hidden = false;
+
+                  form.people_affected.value =
+                    match.reported_indicators.people_affected ||
+                    0;
+
+                  ui.flash(
+                    "#alert",
+                    "warning",
+                    "You are offline. This case was loaded from your downloaded package. " +
+                    "Complete the inspection normally — it will be sent when you reconnect."
+                  );
+
+                } else {
+
+                  ui.flash(
+                    "#alert",
+                    "error",
+                    "You are offline and this case is not in your downloaded package. " +
+                    "Reconnect, or download your assignments before entering the zone."
+                  );
+
+                }
+
+              });
+
           } else {
-            ui.flash("#alert", "error",
-              "You are offline and this case is not in your downloaded package. " +
-              "Reconnect, or download your assignments before entering the zone.");
+
+            ui.flash(
+              "#alert",
+              "error",
+              error.message
+            );
+
           }
+
         });
-      } else {
-        ui.flash("#alert", "error", error.message);
-      }
-    });
-  });
+
+    }
+  );
+
 })();
 </script>
 {% endblock %}

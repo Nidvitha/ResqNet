@@ -94,6 +94,11 @@ class Inspection(models.Model):
         max_length=10, choices=DamageSeverity.choices, default=DamageSeverity.NONE,
         help_text="Furniture, appliances and other household contents.",
     )
+    category_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Verified fields specific to the report's damage category.",
+    )
 
     people_affected = models.PositiveSmallIntegerField(
         default=0, help_text="Verified count, which may differ from the citizen's estimate."
