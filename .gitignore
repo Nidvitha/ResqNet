@@ -33,6 +33,9 @@ test_*.sqlite3
 server.log
 server.err
 
+# ML training outputs (keep source code, not generated model/data artifacts)
+/ml_damage_severity/artifacts/
+
 # Editors / OS
 .vscode/
 .idea/

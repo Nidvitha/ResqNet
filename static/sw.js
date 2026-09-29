@@ -24,7 +24,7 @@
  *      must not be served to the next.
  */
 
-const VERSION = "resqnet-v2";
+const VERSION = "resqnet-v3";
 const SHELL_CACHE = VERSION + "-shell";
 const DATA_CACHE = VERSION + "-data";
 

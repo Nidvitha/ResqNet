@@ -21,6 +21,8 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
+from reports.models import DisasterReport
+
 from accounts.models import OfficerProfile, Role
 
 User = get_user_model()
@@ -137,7 +139,17 @@ def make_signed_case(citizen=None, officer=None, **severity):
     # built "citizen1"/"officer1" does not collide on the unique username.
     citizen = citizen or make_citizen(username="case_citizen")
     officer = officer or make_officer(username="case_officer", employee_id="EMP-CASE")
-    report = make_report(citizen)
+    # Keep this helper's property distinct from reports created by a test's
+    # setUp. The real integrity workflow must hold genuinely matching claims;
+    # this factory is asking specifically for a legitimate inspection fixture.
+    sequence = DisasterReport.objects.count() + 1
+    report = make_report(
+        citizen,
+        latitude=f"{8.70 + sequence * 0.01:.4f}",
+        longitude=f"{76.20 + sequence * 0.01:.4f}",
+        address=f"Parcel{sequence} Landmark{sequence}",
+        description=f"EvidenceToken{sequence} records damage at Parcel{sequence}.",
+    )
 
     assignment = report.assignments.first()
     assert assignment is not None, "Dispatch did not assign an officer - check officer availability."

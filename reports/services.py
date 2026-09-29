@@ -165,6 +165,12 @@ def attach_photo(*, report: DisasterReport, image, caption: str = "", user=None,
         metadata={"photo_id": photo.pk, "has_exif_gps": latitude is not None},
         request=request,
     )
+    try:
+        from damage_ai.services import assess_photo
+
+        assess_photo(photo)
+    except Exception:  # noqa: BLE001 - AI must never block photo upload
+        logger.exception("AI damage assessment integration failed for photo %s", photo.pk)
     return photo
 
 

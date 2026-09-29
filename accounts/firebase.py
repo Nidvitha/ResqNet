@@ -55,6 +55,10 @@ class FirebaseError(Exception):
     """Raised when a token cannot be verified, or Firebase is not configured."""
 
 
+class FirebaseAccountExists(FirebaseError):
+    """Raised when Firebase already has an account for a provisioning email."""
+
+
 #: Google's public keys for Firebase ID tokens, in JWKS form.
 GOOGLE_JWKS_URL = (
     "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
@@ -67,8 +71,8 @@ def has_admin_credentials() -> bool:
     """
     True when a service account is available.
 
-    Required only for *privileged* operations — creating officer accounts and
-    generating password links. Verifying a sign-in does not need it.
+    Required only for *privileged* operations such as creating officer accounts.
+    Verifying a sign-in does not need it.
     """
     if getattr(settings, "FIREBASE_CREDENTIALS_JSON", ""):
         return True
@@ -174,6 +178,8 @@ def _get_app():
         if _app is not None:
             return _app
 
+        # An already-initialised default app (e.g. after an autoreload) is reused
+        # rather than fought with.
         try:
             import firebase_admin
             from firebase_admin import credentials
@@ -181,8 +187,6 @@ def _get_app():
             _init_failed = True
             raise FirebaseError("firebase-admin is not installed on this server.") from exc
 
-        # An already-initialised default app (e.g. after an autoreload) is reused
-        # rather than fought with.
         try:
             _app = firebase_admin.get_app()
             return _app
@@ -198,9 +202,8 @@ def _get_app():
                 # rather than files.
                 certificate = credentials.Certificate(json.loads(raw_json))
             elif credentials_file:
-                # Resolved against BASE_DIR so `.env` can hold a tidy relative
-                # path like `secrets/firebase-service-account.json` regardless of
-                # the working directory the server was started from.
+                # Resolve relative paths against BASE_DIR so `.env` can hold a
+                # tidy path independent of the server's working directory.
                 path = Path(credentials_file)
                 if not path.is_absolute():
                     path = Path(settings.BASE_DIR) / path
@@ -277,23 +280,8 @@ def verify_id_token(id_token: str) -> dict:
     }
 
 
-def provision_user(email: str, display_name: str = "") -> dict:
-    """
-    Ensure a Firebase account exists for a staff email, and return a link they
-    can use to set their own password.
-
-    Officers cannot self-register — that would let anyone claim the role — so
-    without this an administrator has to create every officer twice: once in
-    ResQNet and once by hand in the Firebase console. This closes that gap so
-    provisioning is a single action.
-
-    The administrator never sets the officer's password. A one-time link is
-    generated instead, so the credential is only ever known to the officer.
-
-    Returns `{"uid", "created", "reset_link"}`. Raises `FirebaseError` on
-    failure, which the caller treats as non-fatal: the ResQNet account is still
-    valid and the Firebase side can be retried.
-    """
+def provision_user(email: str, password: str, display_name: str = "") -> dict:
+    """Create a Firebase email/password account for an administrator-provisioned officer."""
     app = _get_app()
 
     try:
@@ -304,32 +292,53 @@ def provision_user(email: str, display_name: str = "") -> dict:
     email = (email or "").strip().lower()
     if not email:
         raise FirebaseError("An email address is required to provision a Firebase account.")
+    if not password:
+        raise FirebaseError("A password is required to provision a Firebase account.")
 
-    created = False
     try:
-        record = firebase_auth.get_user_by_email(email, app=app)
-    except Exception:  # noqa: BLE001 - UserNotFoundError and transport errors alike
-        try:
-            record = firebase_auth.create_user(
-                email=email,
-                display_name=display_name or None,
-                email_verified=False,
-                app=app,
-            )
-            created = True
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Could not create Firebase user for %s", email)
-            raise FirebaseError(f"Could not create the Firebase account: {exc}") from exc
+        firebase_auth.get_user_by_email(email, app=app)
+    except firebase_auth.UserNotFoundError:
+        pass
+    except Exception as exc:  # noqa: BLE001 - SDK errors vary by transport
+        logger.exception("Could not check Firebase account for %s", email)
+        raise FirebaseError("Could not verify the Firebase email. Please try again.") from exc
+    else:
+        raise FirebaseAccountExists(
+            "A Firebase account with this email already exists. Resolve that account before retrying."
+        )
 
-    # A password *reset* link doubles as a "set your password" link for an
-    # account created without one.
     try:
-        reset_link = firebase_auth.generate_password_reset_link(email, app=app)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not generate a password link for %s: %s", email, exc)
-        reset_link = ""
+        record = firebase_auth.create_user(
+            email=email,
+            password=password,
+            display_name=display_name or None,
+            email_verified=False,
+            app=app,
+        )
+    except Exception as exc:  # noqa: BLE001 - SDK errors vary by provider/version
+        if getattr(exc, "code", "") == "email-already-exists":
+            raise FirebaseAccountExists(
+                "A Firebase account with this email already exists. Resolve that account before retrying."
+            ) from exc
+        logger.exception("Could not create Firebase user for %s", email)
+        raise FirebaseError("Could not create the Firebase account. Check Firebase configuration and try again.") from exc
 
-    return {"uid": record.uid, "created": created, "reset_link": reset_link}
+    return {"uid": record.uid, "created": True}
+
+
+def delete_user(uid: str) -> None:
+    """Delete a newly provisioned account if its matching Django write fails."""
+    app = _get_app()
+    try:
+        from firebase_admin import auth as firebase_auth
+    except ImportError as exc:
+        raise FirebaseError("firebase-admin is not installed on this server.") from exc
+
+    try:
+        firebase_auth.delete_user(uid, app=app)
+    except Exception as exc:  # noqa: BLE001 - the caller must preserve the original failure
+        logger.exception("Could not clean up newly provisioned Firebase user %s", uid)
+        raise FirebaseError("Could not roll back the Firebase account after a database error.") from exc
 
 
 #: Public endpoint that reports which identity providers a project has enabled.

@@ -108,6 +108,17 @@ class InspectionWorkflowTests(TestCase):
         with self.assertRaises(InvalidTransition):
             sign_off_inspection(inspection=inspection, signature_name="   ", user=self.officer)
 
+    def test_ai_verification_is_stored_separately_from_checklist(self):
+        inspection = start_inspection(assignment=self.assignment, user=self.officer)
+        update_inspection(
+            inspection=inspection,
+            data={"ai_verified_severity": "MODERATE", "roof_damage": "SEVERE"},
+            user=self.officer,
+        )
+        inspection.refresh_from_db()
+        self.assertEqual(inspection.ai_verified_severity, "MODERATE")
+        self.assertEqual(inspection.roof_damage, "SEVERE")
+
 
 class InspectionAuthorizationTests(TestCase):
     """Section 32 - officer A must not touch officer B's work."""
@@ -206,6 +217,10 @@ class InspectionAPITests(APITestCase):
         agricultural = make_report(
             make_citizen(username="farmer", district="Kollam"),
             damage_category="AGRICULTURAL",
+            latitude="9.5000",
+            longitude="77.5000",
+            address="Hill View Farm, Idukki",
+            description="A separate agricultural claim reports crop damage on a distant farm plot.",
         )
         assignment = agricultural.assignments.first()
         self.client.force_authenticate(assignment.officer)

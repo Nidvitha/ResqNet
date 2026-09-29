@@ -152,9 +152,11 @@ An email an administrator already provisioned signs in **as that account**, with
 whatever role it was given. Any email ResQNet has never seen becomes a
 **citizen** — there is no code path that assigns another role from a token.
 
-Officers cannot self-register. Creating one at `/command/officers/` also creates
-their Firebase account and returns a single-use link for them to set their own
-password, so the administrator never knows it.
+Officers cannot self-register. An administrator creates an officer at
+`/command/officers/` with their name, email, initial password, zone, and duty
+station. The same email and password are provisioned in Firebase and Django;
+the password is write-only in the API response and stored only as a Django
+password hash.
 
 ### Firebase setup
 
@@ -165,12 +167,17 @@ password, so the administrator never knows it.
 3. Project settings → General → Web app → copy the config into `.env`
 4. Project settings → **Service accounts** → Generate new private key → save to
    `secrets/firebase-service-account.json`
+5. Add `FIREBASE_CREDENTIALS_FILE=secrets/firebase-service-account.json` to the
+        server's `.env` file, or provide the service-account JSON through the secret
+        manager as `FIREBASE_CREDENTIALS_JSON`. Restart Django after setting it.
 
 The web config values are not secrets — they ship in every Firebase web app. The
 service account **is** a private key: `secrets/` is gitignored, keep it that way.
 
-Without Firebase configured the platform still runs; the login page reports
-exactly which half is missing and administrators can still sign in.
+Without a service account, citizen and existing officer login can still work,
+but creating a new officer is disabled until `FIREBASE_CREDENTIALS_FILE` or
+`FIREBASE_CREDENTIALS_JSON` is configured. Never commit or log the service
+account JSON.
 
 ## Getting started
 
@@ -208,6 +215,16 @@ python manage.py runserver
 ```
 
 Open **http://127.0.0.1:8000/**
+
+### Map tiles
+
+The Leaflet maps use CARTO's global Voyager raster basemap. Create a key at
+https://carto.com/basemaps/apikey/ and set `CARTO_BASEMAPS_API_KEY` in `.env`.
+Restrict the key to the application's allowed web origins in the CARTO dashboard;
+the browser must receive this key, so it is public and must not be treated as a
+secret. CARTO currently includes up to 5 million monthly requests for
+non-commercial use or 1 million for commercial use. CARTO and OpenStreetMap
+attribution is displayed on the map.
 
 ### Demo accounts
 

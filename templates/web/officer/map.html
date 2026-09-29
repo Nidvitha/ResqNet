@@ -52,8 +52,8 @@
   var COLOURS = { CRITICAL: "#dc2626", HIGH: "#ea580c", MEDIUM: "#ca8a04", LOW: "#0891b2" };
 
   var map = L.map("map").setView([20.5937, 78.9629], 5);   // India, until we have points
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors", maxZoom: 19,
+  L.tileLayer("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key={{ CARTO_BASEMAPS_API_KEY|urlencode }}", {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, © <a href="https://carto.com/attribution/">CARTO</a>', maxZoom: 19,
   }).addTo(map);
 
   function plot(assignments) {

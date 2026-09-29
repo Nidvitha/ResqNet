@@ -82,6 +82,7 @@ class InspectionSerializer(serializers.ModelSerializer):
             "officer", "officer_name", "status", "status_display",
             "structural_damage", "roof_damage", "wall_damage", "foundation_damage",
             "electrical_damage", "water_damage", "household_damage",
+            "ai_verified_severity",
             "category_data",
             "people_affected", "is_habitable", "requires_immediate_relief",
             "estimated_damage_value", "remarks",
@@ -110,6 +111,7 @@ class InspectionUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "structural_damage", "roof_damage", "wall_damage", "foundation_damage",
             "electrical_damage", "water_damage", "household_damage",
+            "ai_verified_severity",
             "category_data",
             "people_affected", "is_habitable", "requires_immediate_relief",
             "estimated_damage_value", "remarks",

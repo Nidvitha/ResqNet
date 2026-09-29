@@ -196,7 +196,13 @@ class DispatchAPITests(APITestCase):
             self.assertIn(key, case)
 
     def test_admin_sees_ranked_candidates_with_reasoning(self):
-        second_report = make_report(make_citizen(username="citizen_two", district="Kollam"))
+        second_report = make_report(
+            make_citizen(username="citizen_two", district="Kollam"),
+            latitude="9.5000",
+            longitude="77.5000",
+            address="Hill View, Idukki",
+            description="A separate distant claim describes earthquake damage to a farm building.",
+        )
         self.client.force_authenticate(self.admin)
         response = self.client.get(reverse("dispatch:candidates", args=[second_report.pk]))
 
@@ -204,6 +210,8 @@ class DispatchAPITests(APITestCase):
         if response.data:
             self.assertIn("reason", response.data[0])
             self.assertIn("distance_km", response.data[0])
+            self.assertIn("zone", response.data[0])
+            self.assertEqual(response.data[0]["zone"], self.officer.officer_profile.zone)
 
     def test_only_admin_can_assign_manually(self):
         self.client.force_authenticate(self.citizen)

@@ -31,6 +31,13 @@ class DamageSeverity(models.TextChoices):
     DESTROYED = "DESTROYED", "Completely destroyed"
 
 
+AI_VERIFICATION_CHOICES = [
+    ("MINOR", "Minor"),
+    ("MODERATE", "Moderate"),
+    ("SEVERE", "Severe"),
+]
+
+
 #: Proportion of the full relief amount each grade attracts.
 #: Deterministic and published - Section 17 requires explainable calculations.
 SEVERITY_FACTOR = {
@@ -93,6 +100,13 @@ class Inspection(models.Model):
     household_damage = models.CharField(
         max_length=10, choices=DamageSeverity.choices, default=DamageSeverity.NONE,
         help_text="Furniture, appliances and other household contents.",
+    )
+    ai_verified_severity = models.CharField(
+        max_length=8,
+        choices=AI_VERIFICATION_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Officer's separate verification of the preliminary AI severity assessment.",
     )
     category_data = models.JSONField(
         default=dict,

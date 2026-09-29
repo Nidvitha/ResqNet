@@ -1,0 +1,1 @@
+"""Django integration for the standalone damage-severity model."""

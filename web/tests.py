@@ -9,7 +9,7 @@ A template with a typo in a `{% url %}` tag raises at render time, not at import
 time, so without these a broken page would only be found by clicking it.
 """
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from config.testing import make_admin, make_citizen, make_officer
@@ -101,6 +101,11 @@ class PortalAccessTests(TestCase):
             with self.subTest(page=name):
                 self.assertEqual(self.client.get(reverse(name)).status_code, 200)
 
+    def test_officer_inspection_page_contains_citizen_damage_summary(self):
+        self.client.force_login(self.officer)
+        response = self.client.get(reverse("web:officer_inspection", args=[1]))
+        self.assertContains(response, "Citizen Damage Summary")
+
     def test_admin_pages_render(self):
         self.client.force_login(self.admin)
         for name in ["web:admin_dashboard", "web:admin_cases",
@@ -147,3 +152,29 @@ class PortalAccessTests(TestCase):
         self.client.force_login(self.admin)
         content = self.client.get(reverse("web:admin_dashboard")).content.decode()
         self.assertIn("Audit", content)
+
+
+class MapTileProviderTests(TestCase):
+    @override_settings(CARTO_BASEMAPS_API_KEY="public-test-key")
+    def test_all_leaflet_maps_use_carto_with_key_and_required_attribution(self):
+        citizen = make_citizen()
+        officer = make_officer()
+        admin = make_admin()
+        pages = [
+            (citizen, reverse("web:citizen_report_detail", args=["RQN-2026-000001"])),
+            (officer, reverse("web:officer_map")),
+            (admin, reverse("web:admin_case_detail", args=["RQN-2026-000001"])),
+            (admin, reverse("web:admin_heatmap")),
+        ]
+
+        for user, url in pages:
+            with self.subTest(url=url):
+                self.client.force_login(user)
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                content = response.content.decode()
+                self.assertIn("basemaps.cartocdn.com/rastertiles/voyager/", content)
+                self.assertIn("?key=public-test-key", content)
+                self.assertIn("OpenStreetMap</a> contributors", content)
+                self.assertIn("carto.com/attribution/", content)
+                self.assertNotIn("tile.openstreetmap.org", content)

@@ -18,6 +18,7 @@ from rest_framework.response import Response
 
 from accounts.permissions import IsOwnerOrStaff
 from audit.services import history_for
+from damage_ai.models import AIDamageAssessment
 
 from .models import DisasterReport, ReportPhoto
 from .serializers import (
@@ -46,7 +47,11 @@ class ReportViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         queryset = DisasterReport.objects.select_related("citizen", "triage_result").prefetch_related(
-            Prefetch("photos", queryset=ReportPhoto.objects.order_by("uploaded_at"))
+            Prefetch("photos", queryset=ReportPhoto.objects.order_by("uploaded_at")),
+            Prefetch(
+                "ai_assessments",
+                queryset=AIDamageAssessment.objects.select_related("photo").order_by("photo_id"),
+            ),
         )
 
         if user.is_admin_role or user.is_superuser:

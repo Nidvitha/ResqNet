@@ -64,6 +64,7 @@ THIRD_PARTY_APPS = [
 LOCAL_APPS = [
     "accounts",       # users, roles, officer profiles, authentication
     "reports",        # citizen damage reports + evidence photos
+    "damage_ai",      # preliminary CNN damage-severity assessments
     "triage",         # rule-based scoring and severity classification
     "dispatch",       # automatic field-officer assignment
     "inspections",    # field verification of reported damage
@@ -100,6 +101,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "config.context_processors.carto_basemaps",
             ],
         },
     },
@@ -191,12 +193,20 @@ FIREBASE_CREDENTIALS_JSON = env("FIREBASE_CREDENTIALS_JSON", default="")
 FIREBASE_CITIZEN_PROVIDERS = ["password", "google.com"]
 FIREBASE_STAFF_PROVIDERS = ["password"]
 
+# CARTO's browser basemap key is public in rendered pages; restrict it to the
+# application's domains in the CARTO dashboard.
+CARTO_BASEMAPS_API_KEY = env("CARTO_BASEMAPS_API_KEY", default="")
+
 # ---------------------------------------------------------------------------
 # Satellite intelligence
 # ---------------------------------------------------------------------------
 # "demo" is deterministic and local-only. Swap to a real inference adapter via
 # services.py when production infrastructure is available.
 SATELLITE_INFERENCE_BACKEND = env("SATELLITE_INFERENCE_BACKEND", default="demo")
+DAMAGE_SEVERITY_MODEL_PATH = env(
+    "DAMAGE_SEVERITY_MODEL_PATH",
+    default=str(BASE_DIR / "ml_damage_severity/artifacts/damage_severity_mobilenet_v3_small.pth"),
+)
 
 # ---------------------------------------------------------------------------
 # Django REST Framework

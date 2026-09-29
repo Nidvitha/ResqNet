@@ -300,39 +300,50 @@ class OfficerListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        officer = serializer.save()
+        if not firebase.has_admin_credentials():
+            return Response(
+                {
+                    "detail": (
+                        "Officer creation requires Firebase Admin SDK credentials. Set "
+                        "FIREBASE_CREDENTIALS_FILE to the service-account JSON path, or "
+                        "FIREBASE_CREDENTIALS_JSON to its JSON content, in the server environment."
+                    )
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
-        # Provision the matching Firebase account so the administrator does not
-        # have to create every officer twice. Best-effort: a Firebase failure
-        # must not roll back a valid ResQNet officer record, so it is reported
-        # rather than raised.
-        provisioning = {"firebase": "skipped", "reset_link": "", "detail": ""}
-        if firebase.is_configured():
-            try:
-                result = firebase.provision_user(
-                    email=officer.email,
-                    display_name=officer.get_full_name() or officer.username,
-                )
-                officer.firebase_uid = result["uid"]
-                officer.auth_provider = "password"
-                officer.save(update_fields=["firebase_uid", "auth_provider", "updated_at"])
-                provisioning = {
-                    "firebase": "created" if result["created"] else "linked",
-                    "reset_link": result["reset_link"],
-                    "detail": (
-                        "Send this link to the officer so they can set their own password. "
-                        "It is single-use and expires."
-                    ),
-                }
-            except firebase.FirebaseError as exc:
-                provisioning = {
-                    "firebase": "failed",
-                    "reset_link": "",
-                    "detail": (
-                        f"The ResQNet officer record was created, but the Firebase "
-                        f"account was not: {exc}"
-                    ),
-                }
+        validated = serializer.validated_data
+        try:
+            result = firebase.provision_user(
+                email=validated["email"],
+                password=validated["password"],
+                display_name=" ".join(
+                    part for part in [validated.get("first_name", ""), validated.get("last_name", "")]
+                    if part
+                ),
+            )
+        except firebase.FirebaseAccountExists as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except firebase.FirebaseError:
+            return Response(
+                {"detail": "Firebase could not create the account. Check the service-account configuration and retry."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            officer = serializer.save(firebase_uid=result["uid"], auth_provider="password")
+        except Exception:
+            if result.get("created"):
+                try:
+                    firebase.delete_user(result["uid"])
+                except firebase.FirebaseError:
+                    pass
+            raise
+
+        provisioning = {
+            "firebase": "created",
+            "detail": "Firebase and ResQNet accounts were created with the same email and password.",
+        }
 
         record_event(
             entity=officer,

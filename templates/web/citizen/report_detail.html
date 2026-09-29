@@ -211,8 +211,8 @@
     var lat = parseFloat(report.latitude), lng = parseFloat(report.longitude);
     if (!isNaN(lat) && !isNaN(lng) && window.L) {
       var map = L.map("case-map").setView([lat, lng], 15);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors", maxZoom: 19,
+      L.tileLayer("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key={{ CARTO_BASEMAPS_API_KEY|urlencode }}", {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, © <a href="https://carto.com/attribution/">CARTO</a>', maxZoom: 19,
       }).addTo(map);
       L.marker([lat, lng]).addTo(map).bindPopup(ui.esc(report.reference));
     }

@@ -79,6 +79,17 @@ class ReportDetailSerializer(serializers.ModelSerializer):
     citizen_phone = serializers.CharField(source="citizen.phone_number", read_only=True)
     progress_percent = serializers.IntegerField(read_only=True)
     is_editable_by_citizen = serializers.BooleanField(read_only=True)
+    ai_assessments = serializers.SerializerMethodField()
+
+    def get_ai_assessments(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not user or not (user.is_field_officer or user.is_admin_role or user.is_superuser):
+            return []
+        from damage_ai.serializers import AIDamageAssessmentSerializer
+
+        assessments = obj.ai_assessments.select_related("photo").all()
+        return AIDamageAssessmentSerializer(assessments, many=True).data
 
     class Meta:
         model = DisasterReport
@@ -93,6 +104,7 @@ class ReportDetailSerializer(serializers.ModelSerializer):
             "status", "status_display", "priority_score", "triage_level",
             "progress_percent", "is_editable_by_citizen",
             "photos", "damage_details", "created_offline", "client_created_at",
+            "ai_assessments",
             "created_at", "updated_at", "submitted_at", "closed_at",
         ]
         read_only_fields = [

@@ -256,9 +256,18 @@ class AuthorizationTests(APITestCase):
         )
 
         self.client.force_authenticate(self.admin)
-        response = self.client.post(reverse("accounts:officer-list"), payload, format="json")
+        with patch("accounts.views.firebase.has_admin_credentials", return_value=True), patch(
+            "accounts.views.firebase.provision_user",
+            return_value={"uid": "firebase-officer-new", "created": True},
+        ):
+            response = self.client.post(reverse("accounts:officer-list"), payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(User.objects.get(username="officer_new").role, Role.FIELD_OFFICER)
+        officer = User.objects.get(username="officer_new")
+        self.assertEqual(officer.role, Role.FIELD_OFFICER)
+        self.assertEqual(officer.email, "on@example.com")
+        self.assertEqual(officer.firebase_uid, "firebase-officer-new")
+        self.assertTrue(officer.check_password(DEFAULT_PASSWORD))
+        self.assertNotIn("password", response.data)
 
 
 class ThrottlingTests(APITestCase):

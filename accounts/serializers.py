@@ -161,14 +161,11 @@ class OfficerCreateSerializer(serializers.ModelSerializer):
     """
     Administrator-only creation of a field officer plus their profile.
 
-    `password` is optional. Where Firebase is configured it holds the officer's
-    credential, and the officer sets it themselves through a one-time link — so
-    the administrator never knows their password. Omitting it leaves the Django
-    account with no usable password, which is correct rather than insecure: an
-    unusable password can never match any input.
+    The supplied password is write-only and is hashed by Django; the view also
+    provisions the Firebase credential with the same email and password.
     """
 
-    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, style={"input_type": "password"})
     profile = OfficerProfileSerializer(write_only=True)
 
     class Meta:

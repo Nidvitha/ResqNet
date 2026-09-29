@@ -121,6 +121,41 @@
     color: var(--slate-500);
     margin: .75rem 0 0;
   }
+
+  .ai-assessment {
+    background: var(--slate-50);
+    border-left: 4px solid var(--teal-600);
+    padding: 1rem 1.25rem;
+  }
+
+  .citizen-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: .8rem 1.25rem;
+  }
+
+  .citizen-summary-item {
+    padding-bottom: .65rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .citizen-summary-item dt {
+    color: var(--text-soft);
+    font-size: .8rem;
+    font-weight: 600;
+  }
+
+  .citizen-summary-item dd {
+    margin: .2rem 0 0;
+    font-weight: 600;
+  }
+
+  .citizen-summary-description {
+    margin: 1rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    white-space: pre-wrap;
+  }
 </style>
 {% endblock %}
 
@@ -137,6 +172,16 @@
     <div id="case-banner"></div>
 
     <form id="inspection-form" hidden>
+
+      <!-- ------------------------------------- Citizen damage summary -->
+
+      <div class="card mb-2">
+        <fieldset>
+          <legend>Citizen Damage Summary</legend>
+          <p class="hint">Read-only summary of the information submitted with the citizen's claim.</p>
+          <div id="citizen-damage-summary"></div>
+        </fieldset>
+      </div>
 
       <!-- ------------------------------------------- Citizen evidence -->
 
@@ -158,6 +203,26 @@
              hidden>
             No photos were submitted by the citizen.
           </p>
+        </fieldset>
+      </div>
+
+      <!-- ----------------------------------------------- AI assessment -->
+
+      <div class="card mb-2">
+        <fieldset>
+          <legend>AI Damage Assessment</legend>
+          <p class="hint">This preliminary image damage-severity assessment is advisory only and requires field officer verification.</p>
+          <div id="ai-assessment" class="ai-assessment"></div>
+          <div class="field mt-2">
+            <label for="ai_verified_severity">Officer verification of AI assessment</label>
+            <select id="ai_verified_severity" name="ai_verified_severity" style="max-width:240px">
+              <option value="">Not yet verified</option>
+              <option value="MINOR">Minor</option>
+              <option value="MODERATE">Moderate</option>
+              <option value="SEVERE">Severe</option>
+            </select>
+            <p class="hint">This is stored separately from the AI result. Your on-site checklist remains the final physical assessment.</p>
+          </div>
         </fieldset>
       </div>
 
@@ -595,6 +660,102 @@
   }
 
 
+  var CITIZEN_SUMMARY_FIELDS = {
+    RESIDENTIAL: {
+      FIRE: [["fire_damage_severity", "Fire/burn damage severity"], ["structural_damage", "Structural damage"], ["roof_damage", "Roof damage"], ["wall_damage", "Wall damage"], ["electrical_damage", "Electrical damage"], ["household_damage", "Household contents damaged"], ["smoke_damage", "Smoke damage"], ["estimated_property_loss", "Estimated property loss"]],
+      FLOOD: [["water_level", "Water level"], ["flood_duration", "Duration of flooding"], ["structural_damage", "Structural damage"], ["roof_damage", "Roof damage"], ["wall_foundation_damage", "Wall/foundation damage"], ["electrical_damage", "Electrical damage"], ["household_damage", "Household contents damaged"], ["estimated_property_loss", "Estimated property loss"]],
+      EARTHQUAKE: [["structural_damage", "Structural damage"], ["roof_damage", "Roof damage"], ["wall_damage", "Wall damage"], ["foundation_damage", "Foundation damage"], ["electrical_damage", "Electrical damage"], ["household_damage", "Household contents damaged"], ["estimated_property_loss", "Estimated property loss"]],
+      DEFAULT: [["damage_severity", "Damage severity"], ["structural_damage", "Structural damage"], ["property_contents_damage", "Property/contents damage"], ["estimated_loss", "Estimated loss"], ["damage_description", "Damage details"]],
+    },
+    AGRICULTURAL: {
+      FIRE: [["crop_type", "Crop type"], ["cultivated_area", "Cultivated/affected area"], ["area_damaged", "Area damaged"], ["crop_damage_severity", "Crop damage severity"], ["crop_damage_percent", "Percentage of crop damaged"], ["farm_equipment_damage", "Farm equipment damaged"], ["irrigation_equipment_damage", "Irrigation equipment damaged"], ["storage_barn_damage", "Storage/barn damage"], ["estimated_crop_loss", "Estimated crop loss"], ["damage_description", "Damage details"]],
+      FLOOD: [["crop_type", "Crop type"], ["cultivated_area", "Cultivated/affected area"], ["area_affected", "Area affected"], ["waterlogging", "Waterlogging"], ["waterlogging_duration", "Duration of waterlogging"], ["crop_damage_severity", "Crop damage severity"], ["irrigation_damage", "Irrigation damage"], ["soil_land_damage", "Soil/land damage"], ["estimated_crop_loss", "Estimated crop loss"], ["damage_description", "Damage details"]],
+      DROUGHT: [["crop_type", "Crop type"], ["cultivated_area", "Cultivated area"], ["area_affected", "Area affected"], ["crop_damage_severity", "Crop damage severity"], ["irrigation_availability_damage", "Irrigation availability/damage"], ["estimated_crop_loss", "Estimated crop loss"], ["damage_description", "Damage details"]],
+      DEFAULT: [["crop_type", "Crop type"], ["area_affected", "Area affected"], ["damage_severity", "Damage severity"], ["estimated_crop_loss", "Estimated crop loss"], ["damage_description", "Damage details"]],
+    },
+    COMMERCIAL: {
+      FIRE: [["building_structural_damage", "Building/structural damage"], ["roof_wall_damage", "Roof/wall damage"], ["equipment_damage", "Equipment/machinery damage"], ["inventory_damage", "Inventory/stock damage"], ["electrical_damage", "Electrical damage"], ["smoke_fire_damage", "Smoke/fire damage"], ["estimated_business_loss", "Estimated business/property loss"]],
+      FLOOD: [["building_damage", "Building damage"], ["water_level", "Water level"], ["equipment_damage", "Equipment/machinery damage"], ["inventory_damage", "Inventory/stock damage"], ["electrical_damage", "Electrical damage"], ["estimated_loss", "Estimated loss"]],
+      DEFAULT: [["structural_damage", "Structural damage"], ["equipment_damage", "Equipment damage"], ["inventory_damage", "Inventory damage"], ["estimated_loss", "Estimated loss"], ["damage_description", "Damage details"]],
+    },
+    INFRASTRUCTURE: {
+      FLOOD: [["infrastructure_type", "Infrastructure type"], ["structural_damage", "Structural damage"], ["road_bridge_blockage", "Road/bridge blockage"], ["water_damage", "Water damage"], ["utility_damage", "Utility damage"], ["accessibility_impact", "Accessibility impact"], ["affected_area", "Affected area"], ["estimated_repair_loss", "Estimated repair/loss"]],
+      FIRE: [["infrastructure_type", "Infrastructure type"], ["structural_damage", "Structural damage"], ["fire_damage_severity", "Fire damage severity"], ["utility_damage", "Utility damage"], ["accessibility_impact", "Accessibility impact"], ["estimated_repair_loss", "Estimated repair/loss"]],
+      EARTHQUAKE: [["infrastructure_type", "Infrastructure type"], ["structural_damage", "Structural damage"], ["road_bridge_damage", "Road/bridge damage"], ["utility_damage", "Utility damage"], ["accessibility_impact", "Accessibility impact"], ["estimated_repair_loss", "Estimated repair/loss"]],
+      DEFAULT: [["infrastructure_type", "Infrastructure type"], ["damage_severity", "Damage severity"], ["damage_description", "Damage details"], ["estimated_repair_loss", "Estimated repair/loss"]],
+    },
+    LIVESTOCK: {
+      FIRE: [["livestock_type", "Livestock type"], ["number_affected", "Number affected"], ["number_injured_lost", "Number injured/lost"], ["shelter_damage", "Shelter damage"], ["feed_water_damage", "Feed/water damage"], ["estimated_loss", "Estimated loss"]],
+      FLOOD: [["livestock_type", "Livestock type"], ["number_affected", "Number affected"], ["number_injured_lost", "Number injured/lost"], ["shelter_damage", "Shelter damage"], ["feed_water_damage", "Feed/water damage"], ["estimated_loss", "Estimated loss"]],
+      DEFAULT: [["livestock_type", "Livestock type"], ["number_affected", "Number affected"], ["damage_description", "Damage details"], ["estimated_loss", "Estimated loss"]],
+    },
+    OTHER: { DEFAULT: [["damage_severity", "Damage severity"], ["damage_description", "Damage details"], ["estimated_loss", "Estimated loss"]] },
+  };
+
+
+  function citizenSummaryValue(key, value) {
+    if (value === true) return "Yes";
+    if (value === false || value === null || value === undefined || value === "") return null;
+    if (typeof value === "number" && value === 0) return null;
+    if (typeof value === "string" && value.toUpperCase() === "NONE") return null;
+    if (key.indexOf("percent") !== -1) return String(value) + "%";
+    if (key.indexOf("loss") !== -1 || key.indexOf("value") !== -1) return ui.money(value);
+    if (typeof value === "string" && /^[A-Z_]+$/.test(value)) {
+      return value.replace(/_/g, " ").toLowerCase().replace(/^\w/, function (letter) { return letter.toUpperCase(); });
+    }
+    return String(value);
+  }
+
+
+  function renderCitizenDamageSummary(report) {
+    var node = document.getElementById("citizen-damage-summary");
+    var details = report.damage_details || {};
+    var category = report.damage_category || "OTHER";
+    var disaster = report.disaster_type || "OTHER";
+    var group = CITIZEN_SUMMARY_FIELDS[category] || CITIZEN_SUMMARY_FIELDS.OTHER;
+    var fields = group[disaster] || group.DEFAULT;
+    var selectedSafety = [
+      ["people_trapped", "People trapped"],
+      ["medical_assistance_needed", "Medical help needed"],
+      ["exposed_live_wires", "Exposed live wires"],
+    ].filter(function (field) { return report[field[0]]; });
+    var common = [
+      ["Case ID", report.reference],
+      ["Disaster type", report.disaster_type_display || report.disaster_type],
+      ["Property category", report.damage_category_display || report.damage_category],
+      ["Location", report.address || report.district],
+      ["People affected", report.people_affected],
+    ].concat(selectedSafety.map(function (field) { return [field[1], "Yes"]; }));
+    var items = common.concat(fields.map(function (field) {
+      return [field[1], citizenSummaryValue(field[0], details[field[0]])];
+    })).filter(function (item) { return item[1] !== null && item[1] !== undefined && item[1] !== ""; });
+
+    node.innerHTML = '<dl class="citizen-summary-grid">' + items.map(function (item) {
+      return '<div class="citizen-summary-item"><dt>' + ui.esc(item[0]) + '</dt><dd>' + ui.esc(String(item[1])) + '</dd></div>';
+    }).join("") + '</dl>' +
+      (report.description ? '<div class="citizen-summary-description"><strong>Citizen description</strong><br>' + ui.esc(report.description) + '</div>' : "");
+  }
+
+
+  function renderAIAssessment(report) {
+    var node = document.getElementById("ai-assessment");
+    var assessments = (report && report.ai_assessments) || [];
+    if (!assessments.length) {
+      node.textContent = "No AI assessment is available for the submitted photos.";
+      return;
+    }
+    node.innerHTML = assessments.map(function (assessment, index) {
+      if (assessment.status !== "SUCCEEDED") {
+        return '<div><strong>Photo ' + (index + 1) + ':</strong> Assessment unavailable. Field verification is still required.</div>';
+      }
+      return '<div><strong>Photo ' + (index + 1) + '</strong><br>' +
+        'AI Severity: <strong>' + ui.esc(assessment.predicted_severity_display) + '</strong><br>' +
+        'Confidence: ' + ui.esc(String(assessment.confidence_percentage)) + '%<br>' +
+        'Model: ' + ui.esc(assessment.model_name) + '</div>';
+    }).join('<hr style="border:0;border-top:1px solid var(--border);margin:.75rem 0">');
+  }
+
+
   /* ------------------------------------------------ Populate */
 
   function populate(data) {
@@ -636,6 +797,8 @@
 
     form.remarks.value =
       data.remarks || "";
+
+    form.ai_verified_severity.value = data.ai_verified_severity || "";
   }
 
 
@@ -662,6 +825,9 @@
 
       remarks:
         form.remarks.value,
+
+      ai_verified_severity:
+        form.ai_verified_severity.value || null,
 
     };
 
@@ -1253,9 +1419,11 @@
               buildCategoryFields(report.damage_category);
               populate(data);
               renderBanner(report);
+              renderCitizenDamageSummary(report);
 
               /* NEW: show citizen-uploaded photos */
               renderCitizenEvidence(report);
+              renderAIAssessment(report);
 
 
               /* Pre-fill the verified count

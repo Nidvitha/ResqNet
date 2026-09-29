@@ -21,7 +21,13 @@ from rest_framework.test import APITestCase
 
 from config.testing import make_admin, make_citizen, make_officer
 
-from .firebase import FirebaseError, has_admin_credentials, is_configured, verify_id_token
+from .firebase import (
+    FirebaseAccountExists,
+    FirebaseError,
+    has_admin_credentials,
+    is_configured,
+    verify_id_token,
+)
 from .models import Role
 from .services import FirebaseAuthDenied, resolve_firebase_user
 
@@ -420,6 +426,7 @@ class OfficerProvisioningTests(APITestCase):
             "email": "officer.new@example.com",
             "first_name": "New",
             "last_name": "Officer",
+            "password": "Officer-Start-2026!",
             "profile": {
                 "employee_id": "EMP-NEW-1",
                 "zone": "Kollam",
@@ -428,55 +435,57 @@ class OfficerProvisioningTests(APITestCase):
             },
         }
 
-    @patch("accounts.views.firebase.is_configured", return_value=True)
+    @patch("accounts.views.firebase.has_admin_credentials", return_value=True)
     @patch("accounts.views.firebase.provision_user")
-    def test_creating_an_officer_provisions_firebase(self, mock_provision, _cfg):
-        mock_provision.return_value = {
-            "uid": "fb-officer-1",
-            "created": True,
-            "reset_link": "https://example.firebaseapp.com/reset?oobCode=abc",
-        }
+    def test_creating_an_officer_uses_matching_firebase_and_django_credentials(self, mock_provision, _cfg):
+        mock_provision.return_value = {"uid": "fb-officer-1", "created": True}
 
         response = self.client.post(self.url, self.payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["provisioning"]["firebase"], "created")
-        self.assertIn("oobCode", response.data["provisioning"]["reset_link"])
+        self.assertNotIn("password", response.data)
+        mock_provision.assert_called_once_with(
+            email="officer.new@example.com",
+            password=self.payload["password"],
+            display_name="New Officer",
+        )
 
         officer = User.objects.get(username="officer.new")
         self.assertEqual(officer.firebase_uid, "fb-officer-1")
         self.assertEqual(officer.role, Role.FIELD_OFFICER)
+        self.assertEqual(officer.email, self.payload["email"])
+        self.assertTrue(officer.check_password(self.payload["password"]))
+        self.assertEqual(officer.officer_profile.zone, "Kollam")
 
-    @patch("accounts.views.firebase.is_configured", return_value=True)
+    @patch("accounts.views.firebase.has_admin_credentials", return_value=True)
     @patch("accounts.views.firebase.provision_user", side_effect=FirebaseError("quota exceeded"))
-    def test_firebase_failure_does_not_lose_the_officer_record(self, _p, _cfg):
-        """The ResQNet account is still valid; Firebase can be retried."""
+    def test_firebase_creation_error_does_not_leave_a_django_officer(self, _p, _cfg):
         response = self.client.post(self.url, self.payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["provisioning"]["firebase"], "failed")
-        self.assertTrue(User.objects.filter(username="officer.new").exists())
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertFalse(User.objects.filter(username="officer.new").exists())
 
-    @patch("accounts.views.firebase.is_configured", return_value=False)
-    def test_without_firebase_the_officer_is_still_created(self, _cfg):
+    @patch("accounts.views.firebase.has_admin_credentials", return_value=False)
+    def test_missing_admin_credentials_explains_configuration_and_creates_nothing(self, _cfg):
         response = self.client.post(self.url, self.payload, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data["provisioning"]["firebase"], "skipped")
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertIn("FIREBASE_CREDENTIALS_FILE", response.data["detail"])
+        self.assertIn("FIREBASE_CREDENTIALS_JSON", response.data["detail"])
+        self.assertFalse(User.objects.filter(username="officer.new").exists())
 
-    @patch("accounts.views.firebase.is_configured", return_value=False)
-    def test_officer_created_without_a_password_cannot_be_guessed_into(self, _cfg):
-        """No password supplied must mean *unusable*, never blank."""
-        self.client.post(self.url, self.payload, format="json")
-        officer = User.objects.get(username="officer.new")
+    def test_password_is_required(self):
+        payload = {key: value for key, value in self.payload.items() if key != "password"}
+        response = self.client.post(self.url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", response.data)
 
-        self.assertFalse(officer.has_usable_password())
-        self.assertFalse(officer.check_password(""))
-
-    @patch("accounts.views.firebase.is_configured", return_value=False)
-    def test_duplicate_officer_email_is_rejected(self, _cfg):
-        """Email is how a Firebase sign-in finds the account; it must be unique."""
-        self.client.post(self.url, self.payload, format="json")
+    @patch("accounts.views.firebase.has_admin_credentials", return_value=True)
+    @patch("accounts.views.firebase.provision_user", return_value={"uid": "fb-officer-1", "created": True})
+    def test_duplicate_officer_email_is_rejected(self, mock_provision, _cfg):
+        first = self.client.post(self.url, self.payload, format="json")
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
 
         second = dict(self.payload)
         second["username"] = "officer.other"
@@ -484,6 +493,50 @@ class OfficerProvisioningTests(APITestCase):
 
         response = self.client.post(self.url, second, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(mock_provision.call_count, 1)
+
+    @patch("accounts.views.firebase.has_admin_credentials", return_value=True)
+    @patch("accounts.views.firebase.provision_user", side_effect=FirebaseAccountExists("already exists"))
+    def test_duplicate_firebase_email_returns_conflict_without_local_officer(self, _p, _cfg):
+        response = self.client.post(self.url, self.payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertFalse(User.objects.filter(username="officer.new").exists())
+        self.assertNotIn(self.payload["password"], str(response.data))
+
+
+class FirebaseOfficerCreationTests(TestCase):
+    @patch("accounts.firebase._get_app", return_value=object())
+    @patch("firebase_admin.auth.get_user_by_email")
+    @patch("firebase_admin.auth.create_user")
+    def test_provision_user_creates_email_password_identity(self, create_user, get_user, _app):
+        from types import SimpleNamespace
+        from firebase_admin import auth
+
+        get_user.side_effect = auth.UserNotFoundError("not found")
+        create_user.return_value = SimpleNamespace(uid="firebase-uid")
+
+        result = __import__("accounts.firebase", fromlist=["provision_user"]).provision_user(
+            " Officer@Example.com ", "Secret-Start-2026!", "New Officer"
+        )
+
+        self.assertEqual(result, {"uid": "firebase-uid", "created": True})
+        create_user.assert_called_once_with(
+            email="officer@example.com",
+            password="Secret-Start-2026!",
+            display_name="New Officer",
+            email_verified=False,
+            app=_app.return_value,
+        )
+
+    @patch("accounts.firebase._get_app", return_value=object())
+    @patch("firebase_admin.auth.get_user_by_email", return_value=object())
+    @patch("firebase_admin.auth.create_user")
+    def test_provision_user_refuses_existing_firebase_email(self, create_user, _get_user, _app):
+        from accounts.firebase import provision_user
+
+        with self.assertRaises(FirebaseAccountExists):
+            provision_user("already@example.com", "Secret-Start-2026!")
+        create_user.assert_not_called()
 
 
 class AuditTrailTests(TestCase):

@@ -80,9 +80,12 @@
         html += '<div class="field"><label for="assignment-officer">Field officer</label>' +
           '<select id="assignment-officer">' +
           candidates.map(function (candidate) {
-            return '<option value="' + candidate.officer_id + '">' +
+            return '<option value="' + candidate.officer_id + '" data-zone="' +
+              ui.esc(candidate.zone || "Unassigned zone") + '">' +
               ui.esc(candidate.officer_name) + " — " + ui.esc(candidate.employee_id) +
-              " · " + candidate.distance_km + " km</option>";
+              " · " + ui.esc(candidate.zone || "Unassigned zone") + " · " +
+              (candidate.distance_km === "manual selection"
+                ? "manual selection" : ui.esc(String(candidate.distance_km)) + " km") + "</option>";
           }).join("") + "</select></div>" +
           '<div class="field"><label for="assignment-note">Assignment note (optional)</label>' +
             '<textarea id="assignment-note" rows="3" maxlength="500" placeholder="Add context for the field officer"></textarea></div>' +
@@ -172,6 +175,19 @@
         }).join("") + "</div></div>";
     }
 
+    if (report.ai_assessments && report.ai_assessments.length) {
+      html += '<div class="card"><h2>AI Damage Severity Assessment</h2>' +
+        '<p class="small muted">Preliminary image assessment; field officer verification remains authoritative.</p>' +
+        report.ai_assessments.map(function (assessment, index) {
+          return '<div class="money-line"><span>Photo ' + (index + 1) + '</span><strong>' +
+            (assessment.status === "SUCCEEDED"
+              ? ui.esc(assessment.predicted_severity_display) + " · " + ui.esc(String(assessment.confidence_percentage)) + "%"
+              : "Unavailable") +
+            '</strong></div><div class="small muted">Model: ' + ui.esc(assessment.model_name) +
+            ' · Status: ' + ui.esc(assessment.status) + '</div>';
+        }).join("") + "</div>";
+    }
+
     /* ---- 5. Officer assignment ---- */
     if (assignments.length) {
       html += '<div class="card"><h2>Officer assignment</h2>' +
@@ -201,6 +217,10 @@
         severityLine("Electrical damage", inspection.electrical_damage) +
         severityLine("Water damage", inspection.water_damage) +
         severityLine("Household damage", inspection.household_damage) +
+        (inspection.ai_verified_severity
+          ? '<div class="money-line"><span>Officer verification of AI assessment</span><strong>' +
+            ui.esc(inspection.ai_verified_severity) + "</strong></div>"
+          : "") +
         '<div class="money-line"><span>Habitable</span><strong>' +
           (inspection.is_habitable ? "Yes" : "No") + "</strong></div>" +
         '<div class="money-line"><span>Verified people affected</span><strong>' +
@@ -269,8 +289,8 @@
     var lat = parseFloat(report.latitude), lng = parseFloat(report.longitude);
     if (isNaN(lat) || isNaN(lng) || !window.L) return;
     var map = L.map("case-map").setView([lat, lng], 15);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors", maxZoom: 19,
+    L.tileLayer("https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key={{ CARTO_BASEMAPS_API_KEY|urlencode }}", {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, © <a href="https://carto.com/attribution/">CARTO</a>', maxZoom: 19,
     }).addTo(map);
     L.marker([lat, lng]).addTo(map).bindPopup(ui.esc(report.reference));
   }
@@ -312,7 +332,13 @@
     if (assign) {
       assign.addEventListener("click", function () {
         var officer = document.getElementById("assignment-officer");
+        var selectedZone = officer.options[officer.selectedIndex].getAttribute("data-zone");
         var note = document.getElementById("assignment-note").value.trim();
+        if (report.district && selectedZone.toLowerCase() !== report.district.trim().toLowerCase() &&
+            !confirm("This officer is assigned to " + selectedZone + ", while this case is in " +
+              report.district + ". Manual assignment can override zone matching. Assign anyway?")) {
+          return;
+        }
         act(api.dispatch.assign(report.id, Number(officer.value), note), assign,
             "Officer assigned. The case is now assigned.");
       });

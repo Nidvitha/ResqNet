@@ -113,6 +113,7 @@ def update_inspection(*, inspection: Inspection, data: dict, user, request=None)
     editable_fields = {
         "structural_damage", "roof_damage", "wall_damage", "foundation_damage",
         "electrical_damage", "water_damage", "household_damage",
+        "ai_verified_severity",
         "category_data",
         "people_affected", "is_habitable", "requires_immediate_relief",
         "estimated_damage_value", "remarks",
